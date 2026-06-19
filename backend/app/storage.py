@@ -21,8 +21,8 @@ class TaskStorage:
 
     @staticmethod
     def _sanitize(value: str) -> str:
-        sanitized = value.strip().replace("\\", "_").replace("/", "_")
-        if sanitized in {"", ".", ".."}:
+        sanitized = value.strip()
+        if sanitized in {"", ".", ".."} or "/" in sanitized or "\\" in sanitized:
             raise ValueError(f"Invalid artifact path segment: {value!r}")
         return sanitized
 

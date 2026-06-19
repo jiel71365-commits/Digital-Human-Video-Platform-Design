@@ -19,28 +19,28 @@ from app.providers.mock import (
 from app.storage import TaskStorage
 
 
-def test_task_storage_creates_task_directories_and_sanitizes_artifacts(tmp_path: Path) -> None:
+def test_task_storage_creates_task_directories_and_artifact_paths(tmp_path: Path) -> None:
     storage = TaskStorage(tmp_path)
 
     task_dir = storage.task_dir(12)
-    artifact = storage.artifact_path(12, "audio/../unsafe", "speech\\take.txt")
+    artifact = storage.artifact_path(12, "audio", "speech.txt")
 
     assert task_dir == tmp_path / "tasks" / "12"
     assert task_dir.exists()
-    assert artifact == tmp_path / "tasks" / "12" / "audio_.._unsafe" / "speech_take.txt"
+    assert artifact == tmp_path / "tasks" / "12" / "audio" / "speech.txt"
     assert artifact.parent.exists()
-
-
-def test_task_storage_rejects_parent_directory_artifact_segments(tmp_path: Path) -> None:
-    storage = TaskStorage(tmp_path)
-
-    with pytest.raises(ValueError, match="Invalid artifact"):
-        storage.artifact_path(12, "..", "x.txt")
 
 
 @pytest.mark.parametrize(
     ("group", "filename"),
     [
+        ("..", "x.txt"),
+        ("audio/../unsafe", "x.txt"),
+        ("audio//unsafe", "x.txt"),
+        ("audio\\..\\unsafe", "x.txt"),
+        ("audio\\\\unsafe", "x.txt"),
+        ("audio", "../x.txt"),
+        ("audio", "..\\x.txt"),
         ("", "x.txt"),
         ("   ", "x.txt"),
         (".", "x.txt"),
@@ -49,7 +49,7 @@ def test_task_storage_rejects_parent_directory_artifact_segments(tmp_path: Path)
         ("audio", "."),
     ],
 )
-def test_task_storage_rejects_empty_or_current_directory_segments(
+def test_task_storage_rejects_unsafe_artifact_path_segments(
     tmp_path: Path,
     group: str,
     filename: str,
