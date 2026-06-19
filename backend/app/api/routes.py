@@ -16,7 +16,7 @@ from app.schemas import (
     TemplateRead,
     VoiceRead,
 )
-from app.services.task_service import TaskService
+from app.services.task_service import InvalidTaskReferencesError, TaskRunError, TaskService
 
 router = APIRouter(prefix="/api")
 
@@ -67,7 +67,24 @@ def create_task(
     session: SessionDep,
     service: TaskServiceDep,
 ) -> TaskRead:
-    task = service.create_and_run(session, payload)
+    try:
+        task = service.create_and_run(session, payload)
+    except InvalidTaskReferencesError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"message": str(exc), "fields": exc.fields},
+        ) from exc
+    except TaskRunError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "task_id": exc.task_id,
+                "message": exc.message,
+                "current_state": exc.current_state.value,
+                "failed_step": exc.failed_step,
+                "error": exc.error,
+            },
+        ) from exc
     return TaskRead.from_model(task)
 
 

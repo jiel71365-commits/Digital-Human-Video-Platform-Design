@@ -8,6 +8,7 @@ from app.models import (
     MediaAsset,
     PostProcessTemplate,
     ScriptDraft,
+    TaskState,
     VideoTask,
     VoiceProfile,
 )
@@ -22,6 +23,30 @@ from app.services.task_runner import TaskRunner
 from app.storage import TaskStorage
 
 
+class InvalidTaskReferencesError(ValueError):
+    def __init__(self, fields: list[str]) -> None:
+        self.fields = fields
+        super().__init__("Invalid task references")
+
+
+class TaskRunError(RuntimeError):
+    def __init__(
+        self,
+        *,
+        task_id: int,
+        message: str,
+        current_state: TaskState,
+        failed_step: str | None,
+        error: str,
+    ) -> None:
+        self.task_id = task_id
+        self.message = message
+        self.current_state = current_state
+        self.failed_step = failed_step
+        self.error = error
+        super().__init__(message)
+
+
 class TaskService:
     def __init__(self, storage_root: Path) -> None:
         self.storage = TaskStorage(storage_root)
@@ -34,11 +59,16 @@ class TaskService:
         )
 
     def create_and_run(self, session: Session, payload: TaskCreate) -> VideoTask:
+        self._validate_references(session, payload)
         task = VideoTask(**payload.model_dump())
         session.add(task)
         session.commit()
         session.refresh(task)
-        self.runner.run_task(session, self._require_task_id(task))
+        task_id = self._require_task_id(task)
+        try:
+            self.runner.run_task(session, task_id)
+        except Exception as exc:
+            raise self._task_run_error(session, task_id, exc) from exc
         session.refresh(task)
         return task
 
@@ -85,6 +115,44 @@ class TaskService:
     def list_templates(self, session: Session) -> list[PostProcessTemplate]:
         return list(
             session.exec(select(PostProcessTemplate).order_by(PostProcessTemplate.id)).all()
+        )
+
+    @staticmethod
+    def _validate_references(session: Session, payload: TaskCreate) -> None:
+        invalid_fields: list[str] = []
+        if session.get(DigitalHumanProfile, payload.digital_human_profile_id) is None:
+            invalid_fields.append("digital_human_profile_id")
+        if session.get(VoiceProfile, payload.voice_profile_id) is None:
+            invalid_fields.append("voice_profile_id")
+        if session.get(PostProcessTemplate, payload.post_process_template_id) is None:
+            invalid_fields.append("post_process_template_id")
+        if invalid_fields:
+            raise InvalidTaskReferencesError(invalid_fields)
+
+    @staticmethod
+    def _task_run_error(session: Session, task_id: int, exc: Exception) -> TaskRunError:
+        session.rollback()
+        task = session.get(VideoTask, task_id)
+        if task is None:
+            return TaskRunError(
+                task_id=task_id,
+                message="Task pipeline failed",
+                current_state=TaskState.FAILED,
+                failed_step=None,
+                error=str(exc),
+            )
+        if task.current_state != TaskState.FAILED:
+            task.current_state = TaskState.FAILED
+            task.failed_step = task.failed_step or "unknown"
+            session.add(task)
+            session.commit()
+            session.refresh(task)
+        return TaskRunError(
+            task_id=task_id,
+            message="Task pipeline failed",
+            current_state=task.current_state,
+            failed_step=task.failed_step,
+            error=str(exc),
         )
 
     @staticmethod

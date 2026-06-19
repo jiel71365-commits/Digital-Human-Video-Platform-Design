@@ -23,6 +23,8 @@ class ApiModel(BaseModel):
 
 
 class TaskCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     input_mode: TaskInputMode
     raw_input: str = Field(min_length=1)
     digital_human_profile_id: int
