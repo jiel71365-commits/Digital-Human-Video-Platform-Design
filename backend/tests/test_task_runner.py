@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import runtime_checkable
 
+import cv2
 import pytest
 from sqlalchemy import event
 from sqlmodel import Session, select
@@ -119,8 +120,35 @@ def test_mock_providers_create_artifacts(tmp_path: Path) -> None:
 
     assert final.final_video_path == tmp_path / "tasks" / "12" / "final" / "final-video.mp4"
     assert final.cover_path == tmp_path / "tasks" / "12" / "final" / "cover.txt"
-    assert "template=default-vertical" in final.final_video_path.read_text(encoding="utf-8")
+    assert final.final_video_path.exists()
+    assert final.final_video_path.stat().st_size > 0
     assert "cover for task 12" in final.cover_path.read_text(encoding="utf-8")
+
+
+def test_mock_post_processor_creates_playable_mp4(tmp_path: Path) -> None:
+    storage = TaskStorage(tmp_path)
+    raw_video_path = storage.artifact_path(12, "render", "raw-video.txt")
+    raw_video_path.write_text(
+        "profile=default-presenter\nduration=1.2\nscript=Playable local video test.\n",
+        encoding="utf-8",
+    )
+    post_processor = MockPostProcessor(storage)
+
+    result = post_processor.process(
+        task_id=12,
+        raw_video_path=raw_video_path,
+        script_text="Playable local video test.",
+        template_key="default-vertical",
+    )
+
+    capture = cv2.VideoCapture(str(result.final_video_path))
+    try:
+        assert capture.isOpened()
+        assert int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) > 0
+        assert int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)) == 720
+        assert int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)) == 1280
+    finally:
+        capture.release()
 
 
 def test_mock_avatar_renderer_rejects_missing_audio_artifact(tmp_path: Path) -> None:

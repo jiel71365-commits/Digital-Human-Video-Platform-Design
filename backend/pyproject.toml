@@ -9,6 +9,9 @@ dependencies = [
   "sqlmodel>=0.0.22",
   "pydantic-settings>=2.4.0",
   "python-multipart>=0.0.9",
+  "numpy>=2.0.0",
+  "opencv-python>=4.10.0",
+  "pillow>=10.4.0",
 ]
 
 [project.optional-dependencies]

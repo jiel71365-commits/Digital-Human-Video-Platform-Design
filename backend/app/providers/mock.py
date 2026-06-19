@@ -1,5 +1,9 @@
 from pathlib import Path
 
+import cv2
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+
 from app.models import TaskInputMode
 from app.providers.base import AudioResult, PostProcessResult, RenderResult, ScriptResult
 from app.storage import TaskStorage
@@ -97,13 +101,12 @@ class MockPostProcessor:
 
         final_path = self.storage.artifact_path(task_id, "final", "final-video.mp4")
         cover_path = self.storage.artifact_path(task_id, "final", "cover.txt")
-        final_path.write_text(
-            (
-                f"template={template_key}\n"
-                f"raw_video={raw_video_path.as_posix()}\n"
-                f"script={script_text}\n"
-            ),
-            encoding="utf-8",
+        duration = max(_duration_from_raw_video_artifact(raw_video_path), 1.0)
+        _write_playable_mp4(
+            path=final_path,
+            script_text=script_text,
+            template_key=template_key,
+            duration_seconds=duration,
         )
         cover_path.write_text(f"cover for task {task_id}\n", encoding="utf-8")
         return PostProcessResult(
@@ -126,3 +129,102 @@ def _duration_from_audio_artifact(audio_path: Path) -> float:
             return float(line.removeprefix("duration="))
 
     return 3.0
+
+
+def _duration_from_raw_video_artifact(raw_video_path: Path) -> float:
+    for line in raw_video_path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("duration="):
+            return float(line.removeprefix("duration="))
+    return 3.0
+
+
+def _write_playable_mp4(
+    *,
+    path: Path,
+    script_text: str,
+    template_key: str,
+    duration_seconds: float,
+) -> None:
+    width = 720
+    height = 1280
+    fps = 24
+    frame_count = max(int(duration_seconds * fps), fps)
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(str(path), fourcc, fps, (width, height))
+    if not writer.isOpened():
+        raise RuntimeError(f"Could not open video writer for {path}")
+
+    try:
+        frames = _render_video_frames(
+            width=width,
+            height=height,
+            frame_count=frame_count,
+            script_text=script_text,
+            template_key=template_key,
+        )
+        for frame in frames:
+            writer.write(cv2.cvtColor(np.array(frame), cv2.COLOR_RGB2BGR))
+    finally:
+        writer.release()
+
+
+def _render_video_frames(
+    *,
+    width: int,
+    height: int,
+    frame_count: int,
+    script_text: str,
+    template_key: str,
+) -> list[Image.Image]:
+    font_title = _load_font(42)
+    font_body = _load_font(34)
+    font_caption = _load_font(24)
+    wrapped_script = _wrap_text(script_text, max_chars=18)
+    frames: list[Image.Image] = []
+
+    for index in range(frame_count):
+        progress = index / max(frame_count - 1, 1)
+        image = Image.new("RGB", (width, height), "#f5f7fb")
+        draw = ImageDraw.Draw(image)
+
+        accent_y = int(140 + 28 * np.sin(progress * np.pi * 2))
+        draw.rounded_rectangle((80, 120, width - 80, 520), radius=42, fill="#1f4f46")
+        draw.ellipse((220, accent_y, 500, accent_y + 280), fill="#e7f6f2")
+        draw.ellipse((290, accent_y + 68, 430, accent_y + 208), fill="#26735f")
+        draw.rectangle((300, accent_y + 215, 420, accent_y + 330), fill="#26735f")
+
+        draw.text((80, 590), "Digital Human Video", font=font_title, fill="#172033")
+        draw.text((80, 648), f"Template: {template_key}", font=font_caption, fill="#607086")
+        y = 740
+        for line in wrapped_script[:8]:
+            draw.text((80, y), line, font=font_body, fill="#253449")
+            y += 52
+
+        bar_width = int((width - 160) * progress)
+        draw.rounded_rectangle((80, 1140, width - 80, 1162), radius=11, fill="#dce3ee")
+        draw.rounded_rectangle((80, 1140, 80 + bar_width, 1162), radius=11, fill="#26735f")
+        draw.text((80, 1188), "Generated local MP4 preview", font=font_caption, fill="#607086")
+        frames.append(image)
+
+    return frames
+
+
+def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    candidates = [
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/simhei.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+    ]
+    for candidate in candidates:
+        try:
+            return ImageFont.truetype(candidate, size=size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def _wrap_text(text: str, max_chars: int) -> list[str]:
+    normalized = " ".join(text.split())
+    if not normalized:
+        return ["No script content"]
+    return [normalized[index : index + max_chars] for index in range(0, len(normalized), max_chars)]
