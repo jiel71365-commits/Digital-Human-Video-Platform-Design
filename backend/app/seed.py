@@ -4,7 +4,10 @@ from app.models import DigitalHumanProfile, PostProcessTemplate, VoiceProfile
 
 
 def seed_defaults(session: Session) -> None:
-    if session.exec(select(DigitalHumanProfile)).first() is None:
+    default_human = session.exec(
+        select(DigitalHumanProfile).where(DigitalHumanProfile.name == "Default Presenter")
+    ).first()
+    if default_human is None:
         session.add(
             DigitalHumanProfile(
                 name="Default Presenter",
@@ -14,7 +17,10 @@ def seed_defaults(session: Session) -> None:
             )
         )
 
-    if session.exec(select(VoiceProfile)).first() is None:
+    default_voice = session.exec(
+        select(VoiceProfile).where(VoiceProfile.is_default.is_(True))
+    ).first()
+    if default_voice is None:
         session.add(
             VoiceProfile(
                 name="Default Voice",
@@ -25,7 +31,10 @@ def seed_defaults(session: Session) -> None:
             )
         )
 
-    if session.exec(select(PostProcessTemplate)).first() is None:
+    default_template = session.exec(
+        select(PostProcessTemplate).where(PostProcessTemplate.name == "Default Vertical Video")
+    ).first()
+    if default_template is None:
         session.add(
             PostProcessTemplate(
                 name="Default Vertical Video",
