@@ -86,11 +86,11 @@ export function TaskForm({ humans, voices, templates, onCreate }: TaskFormProps)
       <div className="config-summary" aria-label="默认生成配置">
         <div>
           <strong>形象</strong>
-          <span>{humans.length > 0 ? "使用默认形象" : "暂无可用形象"}</span>
+          <span>{humans[0]?.name ?? "暂无可用形象"}</span>
         </div>
         <div>
           <strong>声音</strong>
-          <span>{voices.length > 0 ? "使用默认声音" : "暂无可用声音"}</span>
+          <span>{voices[0]?.name ?? "暂无可用声音"}</span>
         </div>
         <div>
           <strong>后期模板</strong>
@@ -99,7 +99,7 @@ export function TaskForm({ humans, voices, templates, onCreate }: TaskFormProps)
       </div>
 
       <button type="submit" disabled={!canSubmit}>
-        {submitting ? "创建中" : "生成视频"}
+        {submitting ? "生成中" : "生成视频"}
       </button>
     </form>
   );

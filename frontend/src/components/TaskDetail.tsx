@@ -1,4 +1,5 @@
 import type { TaskDetail as TaskDetailType } from "../types";
+import { StatusPill } from "./StatusPill";
 
 export function TaskDetail({ detail }: { detail: TaskDetailType | null }) {
   if (!detail) {
@@ -17,6 +18,7 @@ export function TaskDetail({ detail }: { detail: TaskDetailType | null }) {
           <h2>任务详情 #{detail.task.id}</h2>
           <p>{detail.task.input_mode}</p>
         </div>
+        <StatusPill state={detail.task.current_state} />
       </div>
 
       <section className="detail-section" aria-labelledby="generated-script-title">

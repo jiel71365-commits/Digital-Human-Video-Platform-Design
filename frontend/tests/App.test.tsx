@@ -33,6 +33,24 @@ vi.mock("../src/api", () => ({
   listVoices: vi.fn()
 }));
 
+vi.mock("lucide-react", () => {
+  const icon =
+    (name: string) =>
+    ({ "aria-hidden": ariaHidden }: { "aria-hidden"?: boolean }) => (
+      <svg aria-hidden={ariaHidden} data-testid={`icon-${name}`} />
+    );
+
+  return {
+    Clapperboard: icon("Clapperboard"),
+    ClipboardList: icon("ClipboardList"),
+    MonitorPlay: icon("MonitorPlay"),
+    PlusCircle: icon("PlusCircle"),
+    UserRound: icon("UserRound"),
+    Video: icon("Video"),
+    Volume2: icon("Volume2")
+  };
+});
+
 const humans: DigitalHumanProfile[] = [
   {
     id: 1,
@@ -74,7 +92,7 @@ const tasks: VideoTask[] = [
   {
     id: 21,
     input_mode: "existing_script",
-    raw_input: "首条成片任务",
+    raw_input: "A sample task",
     digital_human_profile_id: 1,
     voice_profile_id: 1,
     post_process_template_id: 1,
@@ -162,11 +180,19 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "数字人形象" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "声音" })).toBeInTheDocument();
 
-    expect(screen.getByText("Default Presenter")).toBeInTheDocument();
-    expect(screen.getByText("Default Voice")).toBeInTheDocument();
+    expect(screen.getAllByTestId("icon-MonitorPlay")).toHaveLength(2);
+    expect(screen.getByTestId("icon-Clapperboard")).toBeInTheDocument();
+    expect(screen.getByTestId("icon-UserRound")).toBeInTheDocument();
+    expect(screen.getByTestId("icon-Volume2")).toBeInTheDocument();
+    expect(screen.queryByTestId("icon-Video")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("icon-PlusCircle")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("icon-ClipboardList")).not.toBeInTheDocument();
+
+    expect(screen.getAllByText("Default Presenter")).toHaveLength(2);
+    expect(screen.getAllByText("Default Voice")).toHaveLength(2);
     expect(screen.getByText("Default Vertical Video")).toBeInTheDocument();
-    expect(screen.getByText("首条成片任务")).toBeInTheDocument();
-    expect(screen.getByText("完成")).toBeInTheDocument();
+    expect(screen.getByText("A sample task")).toBeInTheDocument();
+    expect(screen.getAllByText("完成")).toHaveLength(2);
     expect(await screen.findByText("生成的口播脚本")).toBeInTheDocument();
     expect(screen.getByText("/storage/tasks/21/final/final.mp4")).toBeInTheDocument();
     expect(screen.getByText("post_process")).toBeInTheDocument();
@@ -206,5 +232,24 @@ describe("App", () => {
       });
     });
     expect(await screen.findByText("新任务生成脚本")).toBeInTheDocument();
+  });
+
+  it("shows generation progress while creating a task", async () => {
+    const user = userEvent.setup();
+    let resolveCreate: (task: VideoTask) => void = () => {};
+    mockedCreateTask.mockReturnValue(
+      new Promise<VideoTask>((resolve) => {
+        resolveCreate = resolve;
+      })
+    );
+
+    render(<App />);
+
+    await screen.findByLabelText("输入内容");
+    await user.click(screen.getByRole("button", { name: "生成视频" }));
+
+    expect(screen.getByRole("button", { name: "生成中" })).toBeDisabled();
+
+    resolveCreate(tasks[0]);
   });
 });
