@@ -63,7 +63,7 @@ def test_create_task_runs_pipeline_and_returns_completed_task(
     assert payload["current_state"] == "completed"
     assert payload["final_video_path"].startswith(str(api_storage_root))
     assert payload["final_video_path"].endswith("final-video.mp4")
-    assert payload["cover_path"].endswith("cover.txt")
+    assert payload["cover_path"].endswith("cover.jpg")
 
     detail_response = api_client.get(f"/api/tasks/{payload['id']}")
     assert detail_response.status_code == 200
@@ -84,6 +84,19 @@ def test_create_task_runs_pipeline_and_returns_completed_task(
         "final_video",
         "cover",
     }
+    assets_by_type = {asset["asset_type"]: asset for asset in detail["assets"]}
+    assert assets_by_type["audio"]["public_url"].startswith("/api/artifacts/")
+    assert assets_by_type["final_video"]["public_url"].startswith("/api/artifacts/")
+    assert assets_by_type["cover"]["public_url"].startswith("/api/artifacts/")
+
+    video_response = api_client.get(assets_by_type["final_video"]["public_url"])
+    assert video_response.status_code == 200
+    assert video_response.headers["content-type"].startswith("video/mp4")
+    assert len(video_response.content) > 0
+
+    cover_response = api_client.get(assets_by_type["cover"]["public_url"])
+    assert cover_response.status_code == 200
+    assert cover_response.headers["content-type"].startswith("image/jpeg")
 
 
 def test_list_profiles_voices_templates_and_tasks(

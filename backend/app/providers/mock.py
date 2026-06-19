@@ -1,6 +1,11 @@
+import math
+import subprocess
+import wave
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 import cv2
+import imageio_ffmpeg
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
@@ -43,12 +48,10 @@ class MockTTSProvider:
         self.storage = storage
 
     def synthesize(self, task_id: int, script_text: str, voice_key: str) -> AudioResult:
-        path = self.storage.artifact_path(task_id, "audio", "speech.txt")
+        path = self.storage.artifact_path(task_id, "audio", "speech.wav")
         duration = _estimate_duration(script_text)
-        path.write_text(
-            f"voice={voice_key}\nduration={duration}\n{script_text}\n",
-            encoding="utf-8",
-        )
+        _write_sapi_or_tone_wav(path=path, script_text=script_text, duration_seconds=duration)
+        duration = _duration_from_wav(path)
         return AudioResult(
             audio_path=path,
             duration_seconds=duration,
@@ -68,15 +71,12 @@ class MockAvatarRenderer:
         script_text: str = "",
     ) -> RenderResult:
         duration = _duration_from_audio_artifact(audio_path)
-        path = self.storage.artifact_path(task_id, "render", "raw-video.txt")
-        path.write_text(
-            (
-                f"profile={profile_key}\n"
-                f"audio={audio_path.as_posix()}\n"
-                f"duration={duration}\n"
-                f"script={script_text}\n"
-            ),
-            encoding="utf-8",
+        path = self.storage.artifact_path(task_id, "render", "raw-video.mp4")
+        _write_silent_avatar_mp4(
+            path=path,
+            script_text=script_text,
+            template_key=profile_key,
+            duration_seconds=duration,
         )
         return RenderResult(
             video_path=path,
@@ -100,15 +100,21 @@ class MockPostProcessor:
             raise FileNotFoundError(f"Raw video artifact does not exist: {raw_video_path}")
 
         final_path = self.storage.artifact_path(task_id, "final", "final-video.mp4")
-        cover_path = self.storage.artifact_path(task_id, "final", "cover.txt")
-        duration = max(_duration_from_raw_video_artifact(raw_video_path), 1.0)
-        _write_playable_mp4(
-            path=final_path,
+        cover_path = self.storage.artifact_path(task_id, "final", "cover.jpg")
+        audio_path = _audio_path_for_raw_video(raw_video_path)
+        if not audio_path.exists():
+            raise FileNotFoundError(f"Audio artifact does not exist: {audio_path}")
+        _mux_audio_video(
+            raw_video_path=raw_video_path,
+            audio_path=audio_path,
+            output_path=final_path,
+        )
+        _write_cover_image(
+            raw_video_path=raw_video_path,
+            cover_path=cover_path,
             script_text=script_text,
             template_key=template_key,
-            duration_seconds=duration,
         )
-        cover_path.write_text(f"cover for task {task_id}\n", encoding="utf-8")
         return PostProcessResult(
             final_video_path=final_path,
             cover_path=cover_path,
@@ -124,32 +130,100 @@ def _duration_from_audio_artifact(audio_path: Path) -> float:
     if not audio_path.exists():
         raise FileNotFoundError(f"Audio artifact does not exist: {audio_path}")
 
-    for line in audio_path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("duration="):
-            return float(line.removeprefix("duration="))
+    if audio_path.suffix.lower() == ".wav":
+        return _duration_from_wav(audio_path)
 
     return 3.0
 
 
-def _duration_from_raw_video_artifact(raw_video_path: Path) -> float:
-    for line in raw_video_path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("duration="):
-            return float(line.removeprefix("duration="))
-    return 3.0
+def _duration_from_wav(path: Path) -> float:
+    with wave.open(str(path), "rb") as audio:
+        return round(audio.getnframes() / audio.getframerate(), 2)
 
 
-def _write_playable_mp4(
+def _write_sapi_or_tone_wav(path: Path, script_text: str, duration_seconds: float) -> None:
+    try:
+        _write_sapi_wav(path, script_text)
+    except Exception:
+        _write_tone_wav(path=path, duration_seconds=duration_seconds)
+
+
+def _write_sapi_wav(path: Path, script_text: str) -> None:
+    import win32com.client  # type: ignore[import-untyped]
+
+    stream = win32com.client.Dispatch("SAPI.SpFileStream")
+    voice = win32com.client.Dispatch("SAPI.SpVoice")
+    stream.Open(str(path.resolve()), 3, False)
+    try:
+        voice.AudioOutputStream = stream
+        voice.Rate = 0
+        voice.Volume = 100
+        voice.Speak(script_text)
+    finally:
+        stream.Close()
+
+
+def _write_tone_wav(*, path: Path, duration_seconds: float) -> None:
+    sample_rate = 16_000
+    frame_count = max(int(duration_seconds * sample_rate), sample_rate)
+    amplitude = 9000
+    with wave.open(str(path), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(sample_rate)
+        frames = bytearray()
+        for index in range(frame_count):
+            envelope = 0.55 + 0.45 * math.sin(index / sample_rate * math.pi * 2)
+            sample = int(amplitude * envelope * math.sin(2 * math.pi * 220 * index / sample_rate))
+            frames.extend(sample.to_bytes(2, byteorder="little", signed=True))
+        audio.writeframes(bytes(frames))
+
+
+def _write_silent_avatar_mp4(
     *,
     path: Path,
     script_text: str,
     template_key: str,
     duration_seconds: float,
 ) -> None:
+    with NamedTemporaryFile(suffix=".avi", delete=False) as temp:
+        temp_path = Path(temp.name)
+    try:
+        _write_cv2_video(
+            path=temp_path,
+            script_text=script_text,
+            template_key=template_key,
+            duration_seconds=duration_seconds,
+            fourcc_name="MJPG",
+        )
+        _run_ffmpeg(
+            "-y",
+            "-i",
+            str(temp_path),
+            "-an",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(path),
+        )
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def _write_cv2_video(
+    *,
+    path: Path,
+    script_text: str,
+    template_key: str,
+    duration_seconds: float,
+    fourcc_name: str,
+) -> None:
     width = 720
     height = 1280
     fps = 24
     frame_count = max(int(duration_seconds * fps), fps)
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    fourcc = cv2.VideoWriter_fourcc(*fourcc_name)
     writer = cv2.VideoWriter(str(path), fourcc, fps, (width, height))
     if not writer.isOpened():
         raise RuntimeError(f"Could not open video writer for {path}")
@@ -207,6 +281,63 @@ def _render_video_frames(
         frames.append(image)
 
     return frames
+
+
+def _audio_path_for_raw_video(raw_video_path: Path) -> Path:
+    return raw_video_path.parents[1] / "audio" / "speech.wav"
+
+
+def _mux_audio_video(*, raw_video_path: Path, audio_path: Path, output_path: Path) -> None:
+    _run_ffmpeg(
+        "-y",
+        "-i",
+        str(raw_video_path),
+        "-i",
+        str(audio_path),
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-shortest",
+        str(output_path),
+    )
+
+
+def _write_cover_image(
+    *,
+    raw_video_path: Path,
+    cover_path: Path,
+    script_text: str,
+    template_key: str,
+) -> None:
+    capture = cv2.VideoCapture(str(raw_video_path))
+    try:
+        ok, frame = capture.read()
+    finally:
+        capture.release()
+    if ok:
+        cv2.imwrite(str(cover_path), frame)
+        return
+
+    fallback = _render_video_frames(
+        width=720,
+        height=1280,
+        frame_count=1,
+        script_text=script_text,
+        template_key=template_key,
+    )[0]
+    fallback.save(cover_path, format="JPEG", quality=92)
+
+
+def _run_ffmpeg(*args: str) -> None:
+    completed = subprocess.run(
+        [imageio_ffmpeg.get_ffmpeg_exe(), *args],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or "ffmpeg command failed")
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:

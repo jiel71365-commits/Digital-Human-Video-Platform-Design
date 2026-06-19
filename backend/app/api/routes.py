@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlmodel import Session
 
 from app.config import get_settings
@@ -101,6 +102,42 @@ def get_task(
     return TaskDetail(
         task=TaskRead.from_model(task),
         script=ScriptDraftRead.from_model(script) if script is not None else None,
-        assets=[MediaAssetRead.from_model(asset) for asset in assets],
+        assets=[
+            MediaAssetRead.from_model(asset, _public_artifact_url(asset.file_path))
+            for asset in assets
+        ],
         logs=[GenerationStepLogRead.from_model(log) for log in logs],
     )
+
+
+@router.get("/artifacts/{task_id}/{group}/{filename}")
+def get_artifact(
+    task_id: int,
+    group: str,
+    filename: str,
+    service: TaskServiceDep,
+) -> FileResponse:
+    try:
+        artifact_path = service.storage.artifact_path(task_id, group, filename)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Artifact not found",
+        ) from exc
+
+    if not artifact_path.exists() or not artifact_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artifact not found")
+    return FileResponse(artifact_path)
+
+
+def _public_artifact_url(file_path: str) -> str | None:
+    parts = file_path.replace("\\", "/").split("/")
+    try:
+        task_index = parts.index("tasks")
+    except ValueError:
+        return None
+    artifact_parts = parts[task_index + 1 :]
+    if len(artifact_parts) != 3:
+        return None
+    task_id, group, filename = artifact_parts
+    return f"/api/artifacts/{task_id}/{group}/{filename}"

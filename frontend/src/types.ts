@@ -103,6 +103,7 @@ export interface MediaAsset {
   file_path: string;
   duration_seconds: number | null;
   asset_metadata: Record<string, unknown>;
+  public_url: string | null;
 }
 
 export interface GenerationStepLog {

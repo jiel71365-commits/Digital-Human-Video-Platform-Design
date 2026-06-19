@@ -70,10 +70,13 @@ class MediaAssetRead(ApiModel):
     file_path: str
     duration_seconds: float | None
     asset_metadata: dict[str, Any]
+    public_url: str | None = None
 
     @classmethod
-    def from_model(cls, asset: MediaAsset) -> "MediaAssetRead":
-        return cls.model_validate(asset)
+    def from_model(cls, asset: MediaAsset, public_url: str | None = None) -> "MediaAssetRead":
+        data = cls.model_validate(asset)
+        data.public_url = public_url
+        return data
 
 
 class GenerationStepLogRead(ApiModel):

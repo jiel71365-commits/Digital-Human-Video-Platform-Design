@@ -12,6 +12,9 @@ dependencies = [
   "numpy>=2.0.0",
   "opencv-python>=4.10.0",
   "pillow>=10.4.0",
+  "imageio-ffmpeg>=0.6.0",
+  "mutagen>=1.47.0",
+  "pywin32>=306; platform_system == 'Windows'",
 ]
 
 [project.optional-dependencies]

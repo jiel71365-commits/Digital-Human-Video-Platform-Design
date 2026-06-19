@@ -328,6 +328,43 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.video-preview {
+  display: block;
+  width: 100%;
+  max-height: 560px;
+  border: 1px solid #dce3ee;
+  border-radius: 8px;
+  background: #111827;
+  object-fit: contain;
+}
+
+.asset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.asset-actions a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid #c9d4e5;
+  border-radius: 8px;
+  color: #1f4f46;
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.asset-actions a:hover {
+  border-color: #26735f;
+  background: #eef8f5;
+}
+
 .empty-state {
   margin: 0;
   color: #607086;

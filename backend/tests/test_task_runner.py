@@ -1,7 +1,10 @@
+import subprocess
+import wave
 from pathlib import Path
 from typing import runtime_checkable
 
 import cv2
+import imageio_ffmpeg
 import pytest
 from sqlalchemy import event
 from sqlmodel import Session, select
@@ -107,36 +110,46 @@ def test_mock_providers_create_artifacts(tmp_path: Path) -> None:
     assert script.estimated_duration_seconds > 0
     assert script.structured_segments == [{"index": 1, "text": script.script_text}]
 
-    assert audio.audio_path == tmp_path / "tasks" / "12" / "audio" / "speech.txt"
-    assert audio.audio_path.read_text(encoding="utf-8").startswith("voice=default")
-    assert audio.duration_seconds == script.estimated_duration_seconds
+    assert audio.audio_path == tmp_path / "tasks" / "12" / "audio" / "speech.wav"
+    assert _wav_duration(audio.audio_path) > 0
+    assert audio.duration_seconds == pytest.approx(_wav_duration(audio.audio_path), abs=0.01)
     assert audio.timing == [
         {"start": 0.0, "end": audio.duration_seconds, "text": script.script_text}
     ]
 
-    assert raw_video.video_path == tmp_path / "tasks" / "12" / "render" / "raw-video.txt"
-    assert "profile=default-presenter" in raw_video.video_path.read_text(encoding="utf-8")
-    assert raw_video.duration_seconds == audio.duration_seconds
+    assert raw_video.video_path == tmp_path / "tasks" / "12" / "render" / "raw-video.mp4"
+    assert _video_dimensions(raw_video.video_path) == (720, 1280)
+    assert raw_video.duration_seconds == pytest.approx(audio.duration_seconds, abs=0.1)
 
     assert final.final_video_path == tmp_path / "tasks" / "12" / "final" / "final-video.mp4"
-    assert final.cover_path == tmp_path / "tasks" / "12" / "final" / "cover.txt"
+    assert final.cover_path == tmp_path / "tasks" / "12" / "final" / "cover.jpg"
     assert final.final_video_path.exists()
     assert final.final_video_path.stat().st_size > 0
-    assert "cover for task 12" in final.cover_path.read_text(encoding="utf-8")
+    assert _video_dimensions(final.final_video_path) == (720, 1280)
+    assert _ffmpeg_probe_output(final.final_video_path).count("Audio:") >= 1
+    assert final.cover_path.exists()
 
 
 def test_mock_post_processor_creates_playable_mp4(tmp_path: Path) -> None:
     storage = TaskStorage(tmp_path)
-    raw_video_path = storage.artifact_path(12, "render", "raw-video.txt")
-    raw_video_path.write_text(
-        "profile=default-presenter\nduration=1.2\nscript=Playable local video test.\n",
-        encoding="utf-8",
+    tts = MockTTSProvider(storage)
+    avatar = MockAvatarRenderer(storage)
+    audio = tts.synthesize(
+        task_id=12,
+        script_text="Playable local video test.",
+        voice_key="default",
+    )
+    raw_video = avatar.render(
+        task_id=12,
+        audio_path=audio.audio_path,
+        profile_key="default-presenter",
+        script_text="Playable local video test.",
     )
     post_processor = MockPostProcessor(storage)
 
     result = post_processor.process(
         task_id=12,
-        raw_video_path=raw_video_path,
+        raw_video_path=raw_video.video_path,
         script_text="Playable local video test.",
         template_key="default-vertical",
     )
@@ -147,6 +160,7 @@ def test_mock_post_processor_creates_playable_mp4(tmp_path: Path) -> None:
         assert int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) > 0
         assert int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)) == 720
         assert int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)) == 1280
+        assert "Audio:" in _ffmpeg_probe_output(result.final_video_path)
     finally:
         capture.release()
 
@@ -265,7 +279,7 @@ def test_task_runner_completes_existing_script_task(session: Session, tmp_path: 
     assert task.final_video_path == str(
         tmp_path / "tasks" / str(task_id) / "final" / "final-video.mp4"
     )
-    assert task.cover_path == str(tmp_path / "tasks" / str(task_id) / "final" / "cover.txt")
+    assert task.cover_path == str(tmp_path / "tasks" / str(task_id) / "final" / "cover.jpg")
 
     assert len(scripts) == 1
     assert scripts[0].script_text == "A complete script for the MVP."
@@ -274,10 +288,10 @@ def test_task_runner_completes_existing_script_task(session: Session, tmp_path: 
     assert len(assets) == 4
     assert set(assets_by_type) == {"audio", "raw_video", "final_video", "cover"}
     assert assets_by_type["audio"].file_path == str(
-        tmp_path / "tasks" / str(task_id) / "audio" / "speech.txt"
+        tmp_path / "tasks" / str(task_id) / "audio" / "speech.wav"
     )
     assert assets_by_type["raw_video"].file_path == str(
-        tmp_path / "tasks" / str(task_id) / "render" / "raw-video.txt"
+        tmp_path / "tasks" / str(task_id) / "render" / "raw-video.mp4"
     )
     assert assets_by_type["final_video"].file_path == task.final_video_path
     assert assets_by_type["cover"].file_path == task.cover_path
@@ -391,7 +405,7 @@ def test_task_runner_rerun_clears_previous_outputs_and_failed_step(
     assert task.final_video_path == str(
         tmp_path / "tasks" / str(task_id) / "final" / "final-video.mp4"
     )
-    assert task.cover_path == str(tmp_path / "tasks" / str(task_id) / "final" / "cover.txt")
+    assert task.cover_path == str(tmp_path / "tasks" / str(task_id) / "final" / "cover.jpg")
     assert len(scripts) == 1
     assert len(assets) == 4
     assert len(logs) == 4
@@ -436,3 +450,30 @@ def _create_valid_task(
 def _require_task_id(task: VideoTask) -> int:
     assert task.id is not None
     return task.id
+
+
+def _wav_duration(path: Path) -> float:
+    with wave.open(str(path), "rb") as audio:
+        return audio.getnframes() / audio.getframerate()
+
+
+def _video_dimensions(path: Path) -> tuple[int, int]:
+    capture = cv2.VideoCapture(str(path))
+    try:
+        assert capture.isOpened()
+        return (
+            int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+        )
+    finally:
+        capture.release()
+
+
+def _ffmpeg_probe_output(path: Path) -> str:
+    completed = subprocess.run(
+        [imageio_ffmpeg.get_ffmpeg_exe(), "-i", str(path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stderr

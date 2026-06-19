@@ -120,7 +120,17 @@ const assets: MediaAsset[] = [
     asset_type: "final_video",
     file_path: "/storage/tasks/21/final/final.mp4",
     duration_seconds: 12,
-    asset_metadata: {}
+    asset_metadata: {},
+    public_url: "/api/artifacts/21/final/final-video.mp4"
+  },
+  {
+    id: 2,
+    task_id: 21,
+    asset_type: "cover",
+    file_path: "/storage/tasks/21/final/cover.jpg",
+    duration_seconds: null,
+    asset_metadata: {},
+    public_url: "/api/artifacts/21/final/cover.jpg"
   }
 ];
 
@@ -163,7 +173,15 @@ function makeTaskDetail(task: VideoTask, scriptText = script.script_text): TaskD
         ...assets[0],
         id: task.id,
         task_id: task.id,
-        file_path: `/storage/tasks/${task.id}/final/final.mp4`
+        file_path: `/storage/tasks/${task.id}/final/final.mp4`,
+        public_url: `/api/artifacts/${task.id}/final/final-video.mp4`
+      },
+      {
+        ...assets[1],
+        id: task.id + 100,
+        task_id: task.id,
+        file_path: `/storage/tasks/${task.id}/final/cover.jpg`,
+        public_url: `/api/artifacts/${task.id}/final/cover.jpg`
       }
     ],
     logs: [{ ...logs[0], id: task.id, task_id: task.id }]
@@ -222,6 +240,18 @@ describe("App", () => {
     expect(screen.getAllByText("完成")).toHaveLength(2);
     expect(await screen.findByText("生成的口播脚本")).toBeInTheDocument();
     expect(screen.getByText("/storage/tasks/21/final/final.mp4")).toBeInTheDocument();
+    expect(screen.getByLabelText("成片视频预览")).toHaveAttribute(
+      "src",
+      "/api/artifacts/21/final/final-video.mp4"
+    );
+    expect(screen.getByRole("link", { name: "下载视频" })).toHaveAttribute(
+      "href",
+      "/api/artifacts/21/final/final-video.mp4"
+    );
+    expect(screen.getByRole("link", { name: "下载封面" })).toHaveAttribute(
+      "href",
+      "/api/artifacts/21/final/cover.jpg"
+    );
     expect(screen.getByText("post_process")).toBeInTheDocument();
   });
 

@@ -11,6 +11,10 @@ export function TaskDetail({ detail }: { detail: TaskDetailType | null }) {
     );
   }
 
+  const finalVideo = detail.assets.find((asset) => asset.asset_type === "final_video");
+  const cover = detail.assets.find((asset) => asset.asset_type === "cover");
+  const audio = detail.assets.find((asset) => asset.asset_type === "audio");
+
   return (
     <section className="panel detail-panel">
       <div className="panel-header">
@@ -25,6 +29,34 @@ export function TaskDetail({ detail }: { detail: TaskDetailType | null }) {
         <h3 id="generated-script-title">生成文案</h3>
         <p className="script-box">{detail.script?.script_text ?? "暂无文案"}</p>
       </section>
+
+      {finalVideo?.public_url ? (
+        <section className="detail-section" aria-labelledby="preview-title">
+          <h3 id="preview-title">成片预览</h3>
+          <video
+            aria-label="成片视频预览"
+            className="video-preview"
+            controls
+            poster={cover?.public_url ?? undefined}
+            src={finalVideo.public_url}
+          />
+          <div className="asset-actions">
+            <a href={finalVideo.public_url} download>
+              下载视频
+            </a>
+            {cover?.public_url ? (
+              <a href={cover.public_url} download>
+                下载封面
+              </a>
+            ) : null}
+            {audio?.public_url ? (
+              <a href={audio.public_url} download>
+                下载音频
+              </a>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       <section className="detail-section" aria-labelledby="assets-title">
         <h3 id="assets-title">产物</h3>
