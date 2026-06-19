@@ -146,6 +146,30 @@ const detail: TaskDetail = {
   logs
 };
 
+const createdTask: VideoTask = {
+  ...tasks[0],
+  id: 22,
+  raw_input: "New task draft",
+  final_video_path: "/storage/tasks/22/final/final.mp4",
+  cover_path: "/storage/tasks/22/final/cover.jpg"
+};
+
+function makeTaskDetail(task: VideoTask, scriptText = script.script_text): TaskDetail {
+  return {
+    task,
+    script: { ...script, id: task.id, task_id: task.id, script_text: scriptText },
+    assets: [
+      {
+        ...assets[0],
+        id: task.id,
+        task_id: task.id,
+        file_path: `/storage/tasks/${task.id}/final/final.mp4`
+      }
+    ],
+    logs: [{ ...logs[0], id: task.id, task_id: task.id }]
+  };
+}
+
 const mockedListDigitalHumans = vi.mocked(listDigitalHumans);
 const mockedListVoices = vi.mocked(listVoices);
 const mockedListTemplates = vi.mocked(listTemplates);
@@ -158,7 +182,10 @@ function mockApiData(nextTasks = tasks) {
   mockedListVoices.mockResolvedValue(voices);
   mockedListTemplates.mockResolvedValue(templates);
   mockedListTasks.mockResolvedValue(nextTasks);
-  mockedGetTask.mockResolvedValue(detail);
+  mockedGetTask.mockImplementation(async (taskId: number) => {
+    const task = nextTasks.find((nextTask) => nextTask.id === taskId);
+    return task ? makeTaskDetail(task) : detail;
+  });
 }
 
 describe("App", () => {
@@ -200,38 +227,96 @@ describe("App", () => {
 
   it("creates a task with the first available profile, voice, and template", async () => {
     const user = userEvent.setup();
-    const createdTask: VideoTask = {
-      ...tasks[0],
-      id: 22,
-      raw_input: "新任务文案"
-    };
     mockedCreateTask.mockResolvedValue(createdTask);
     mockedListTasks.mockResolvedValueOnce(tasks).mockResolvedValueOnce([createdTask, ...tasks]);
-    mockedGetTask.mockResolvedValue({
-      ...detail,
-      task: createdTask,
-      script: { ...script, task_id: 22, script_text: "新任务生成脚本" },
-      assets: [{ ...assets[0], task_id: 22, file_path: "/storage/tasks/22/final/final.mp4" }],
-      logs: [{ ...logs[0], task_id: 22 }]
+    mockedGetTask.mockImplementation(async (taskId: number) => {
+      if (taskId === 21) {
+        return makeTaskDetail(tasks[0], "Initial task script");
+      }
+      if (taskId === 22) {
+        return makeTaskDetail(createdTask, "Created task script");
+      }
+      throw new Error(`Unexpected task id ${taskId}`);
     });
 
-    render(<App />);
+    const { container } = render(<App />);
 
-    const input = await screen.findByLabelText("输入内容");
+    const input = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    expect(await screen.findByRole("heading", { name: /#21/ })).toBeInTheDocument();
+    expect(screen.getByText("Initial task script")).toBeInTheDocument();
+
     await user.clear(input);
-    await user.type(input, "新任务文案");
-    await user.click(screen.getByRole("button", { name: "生成视频" }));
+    await user.type(input, "New task draft");
+    const submitButton = container.querySelector<HTMLButtonElement>('button[type="submit"]');
+    expect(submitButton).not.toBeNull();
+    await user.click(submitButton!);
 
     await waitFor(() => {
       expect(mockedCreateTask).toHaveBeenCalledWith({
         input_mode: "existing_script",
-        raw_input: "新任务文案",
+        raw_input: "New task draft",
         digital_human_profile_id: 1,
         voice_profile_id: 1,
         post_process_template_id: 1
       });
     });
-    expect(await screen.findByText("新任务生成脚本")).toBeInTheDocument();
+    expect(mockedGetTask).toHaveBeenCalledWith(22);
+    expect(await screen.findByRole("heading", { name: /#22/ })).toBeInTheDocument();
+    expect(screen.getByText("Created task script")).toBeInTheDocument();
+    expect(screen.queryByText("Initial task script")).not.toBeInTheDocument();
+  });
+
+  it("keeps the latest selected task detail when older requests resolve later", async () => {
+    const user = userEvent.setup();
+    const task21Resolvers: Array<(nextDetail: TaskDetail) => void> = [];
+    let resolveTask22: (nextDetail: TaskDetail) => void = () => {};
+
+    mockedListTasks.mockResolvedValue([tasks[0], createdTask]);
+    mockedGetTask.mockImplementation((taskId: number) => {
+      if (taskId === 21) {
+        return new Promise<TaskDetail>((resolve) => {
+          task21Resolvers.push(resolve);
+        });
+      }
+      if (taskId === 22) {
+        return new Promise<TaskDetail>((resolve) => {
+          resolveTask22 = resolve;
+        });
+      }
+      return Promise.reject(new Error(`Unexpected task id ${taskId}`));
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(task21Resolvers).toHaveLength(1);
+    });
+    task21Resolvers[0](makeTaskDetail(tasks[0], "Initial selected script"));
+
+    const firstTaskButton = await screen.findByRole("button", { name: /A sample task/ });
+    await user.click(screen.getByRole("button", { name: /New task draft/ }));
+    await user.click(firstTaskButton);
+
+    expect(firstTaskButton).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /New task draft/ })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+
+    await waitFor(() => {
+      expect(task21Resolvers).toHaveLength(2);
+    });
+    task21Resolvers[1](makeTaskDetail(tasks[0], "Latest selected script"));
+    expect(await screen.findByRole("heading", { name: /#21/ })).toBeInTheDocument();
+    expect(screen.getByText("Latest selected script")).toBeInTheDocument();
+
+    resolveTask22(makeTaskDetail(createdTask, "Stale selected script"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /#21/ })).toBeInTheDocument();
+    });
+    expect(screen.getByText("Latest selected script")).toBeInTheDocument();
+    expect(screen.queryByText("Stale selected script")).not.toBeInTheDocument();
   });
 
   it("shows generation progress while creating a task", async () => {

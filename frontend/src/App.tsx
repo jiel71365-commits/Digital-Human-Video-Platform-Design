@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   createTask,
@@ -36,14 +36,24 @@ export function App() {
   const [detail, setDetail] = useState<TaskDetailType | null>(null);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const detailRequestIdRef = useRef(0);
 
   async function loadTaskDetail(taskId: number) {
+    const requestId = detailRequestIdRef.current + 1;
+    detailRequestIdRef.current = requestId;
+
     try {
       setDetail(null);
       const nextDetail = await getTask(taskId);
+      if (requestId !== detailRequestIdRef.current) {
+        return;
+      }
       setDetail(nextDetail);
       setError(null);
     } catch (err) {
+      if (requestId !== detailRequestIdRef.current) {
+        return;
+      }
       setDetail(null);
       setError(`任务详情加载失败：${getErrorMessage(err)}`);
     }
@@ -75,6 +85,7 @@ export function App() {
       if (requestedTaskId !== null) {
         await loadTaskDetail(requestedTaskId);
       } else {
+        detailRequestIdRef.current += 1;
         setDetail(null);
       }
     } catch (err) {

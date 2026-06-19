@@ -23,6 +23,7 @@ export function TaskList({ tasks, selectedTaskId, onSelect }: TaskListProps) {
         <div className="task-list">
           {tasks.map((task) => (
             <button
+              aria-pressed={task.id === selectedTaskId}
               className={task.id === selectedTaskId ? "task-row active" : "task-row"}
               key={task.id}
               type="button"
