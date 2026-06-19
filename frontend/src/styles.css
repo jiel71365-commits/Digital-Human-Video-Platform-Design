@@ -1,0 +1,116 @@
+:root {
+  font-family:
+    Inter, "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #1f2933;
+  background: #f4f7f9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.app-shell {
+  min-height: 100vh;
+  padding: 32px;
+}
+
+.hero,
+.workspace {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.hero {
+  padding: 36px 0 28px;
+  border-bottom: 1px solid #d8e2ea;
+}
+
+.eyebrow,
+.section-kicker {
+  margin: 0 0 8px;
+  color: #2f6f62;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.hero h1 {
+  margin: 0;
+  color: #17212b;
+  font-size: 34px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.hero p:last-child {
+  max-width: 720px;
+  margin: 14px 0 0;
+  color: #52616f;
+  line-height: 1.7;
+}
+
+.workspace {
+  padding: 28px 0;
+}
+
+.workspace h2 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.dashboard-grid article {
+  display: grid;
+  gap: 8px;
+  min-height: 104px;
+  padding: 18px;
+  border: 1px solid #dce5ed;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.dashboard-grid span {
+  color: #5f6f7f;
+  font-size: 14px;
+}
+
+.dashboard-grid strong {
+  color: #17212b;
+  font-size: 24px;
+}
+
+@media (max-width: 760px) {
+  .app-shell {
+    padding: 20px;
+  }
+
+  .hero {
+    padding-top: 20px;
+  }
+
+  .hero h1 {
+    font-size: 28px;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
