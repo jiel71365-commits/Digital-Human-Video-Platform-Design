@@ -1,35 +1,144 @@
-export function App() {
-  return (
-    <main className="app-shell">
-      <section className="hero" aria-labelledby="dashboard-title">
-        <p className="eyebrow">工作台</p>
-        <h1 id="dashboard-title">数字人口播视频工作台</h1>
-        <p>
-          管理数字人、声音、模板和视频生成任务。当前前端仅提供 MVP
-          工作台骨架，后续任务会接入完整交互。
-        </p>
-      </section>
+import { useEffect, useState } from "react";
 
-      <section className="workspace" aria-labelledby="workspace-title">
+import {
+  createTask,
+  getTask,
+  listDigitalHumans,
+  listTasks,
+  listTemplates,
+  listVoices
+} from "./api";
+import { Layout } from "./components/Layout";
+import { ProfileList } from "./components/ProfileList";
+import { TaskDetail } from "./components/TaskDetail";
+import { TaskForm } from "./components/TaskForm";
+import { TaskList } from "./components/TaskList";
+import { VoiceList } from "./components/VoiceList";
+import type {
+  DigitalHumanProfile,
+  PostProcessTemplate,
+  TaskCreatePayload,
+  TaskDetail as TaskDetailType,
+  VideoTask,
+  VoiceProfile
+} from "./types";
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "未知错误";
+}
+
+export function App() {
+  const [humans, setHumans] = useState<DigitalHumanProfile[]>([]);
+  const [voices, setVoices] = useState<VoiceProfile[]>([]);
+  const [templates, setTemplates] = useState<PostProcessTemplate[]>([]);
+  const [tasks, setTasks] = useState<VideoTask[]>([]);
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [detail, setDetail] = useState<TaskDetailType | null>(null);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function loadTaskDetail(taskId: number) {
+    try {
+      setDetail(null);
+      const nextDetail = await getTask(taskId);
+      setDetail(nextDetail);
+      setError(null);
+    } catch (err) {
+      setDetail(null);
+      setError(`任务详情加载失败：${getErrorMessage(err)}`);
+    }
+  }
+
+  async function loadData(preferredTaskId?: number) {
+    try {
+      const [nextHumans, nextVoices, nextTemplates, nextTasks] = await Promise.all([
+        listDigitalHumans(),
+        listVoices(),
+        listTemplates(),
+        listTasks()
+      ]);
+      const taskIds = new Set(nextTasks.map((task) => task.id));
+      const requestedTaskId =
+        preferredTaskId !== undefined && taskIds.has(preferredTaskId)
+          ? preferredTaskId
+          : selectedTaskId !== null && taskIds.has(selectedTaskId)
+            ? selectedTaskId
+            : (nextTasks[0]?.id ?? null);
+
+      setHumans(nextHumans);
+      setVoices(nextVoices);
+      setTemplates(nextTemplates);
+      setTasks(nextTasks);
+      setSelectedTaskId(requestedTaskId);
+      setError(null);
+
+      if (requestedTaskId !== null) {
+        await loadTaskDetail(requestedTaskId);
+      } else {
+        setDetail(null);
+      }
+    } catch (err) {
+      setError(`数据加载失败：${getErrorMessage(err)}`);
+    } finally {
+      setHasLoaded(true);
+    }
+  }
+
+  async function handleCreate(payload: TaskCreatePayload) {
+    try {
+      setError(null);
+      const created = await createTask(payload);
+      await loadData(created.id);
+      return created;
+    } catch (err) {
+      setError(`任务创建失败：${getErrorMessage(err)}`);
+      throw err;
+    }
+  }
+
+  function handleSelectTask(taskId: number) {
+    setSelectedTaskId(taskId);
+    void loadTaskDetail(taskId);
+  }
+
+  useEffect(() => {
+    void loadData();
+  }, []);
+
+  return (
+    <Layout>
+      <header className="workspace-header">
         <div>
-          <p className="section-kicker">工作台</p>
-          <h2 id="workspace-title">任务概览</h2>
+          <p className="section-kicker">MVP 工作台</p>
+          <h1>数字人口播视频管理台</h1>
         </div>
+        <p>使用默认数字人、声音和后期模板创建任务，查看成片记录、产物和生成日志。</p>
+      </header>
+
+      {error ? (
+        <div className="error-banner" role="alert">
+          {error}
+        </div>
+      ) : null}
+
+      {!hasLoaded ? (
+        <section className="loading-panel" aria-live="polite">
+          正在加载工作台...
+        </section>
+      ) : (
         <div className="dashboard-grid">
-          <article>
-            <span>数字人</span>
-            <strong>待接入</strong>
-          </article>
-          <article>
-            <span>声音</span>
-            <strong>待接入</strong>
-          </article>
-          <article>
-            <span>生成任务</span>
-            <strong>待接入</strong>
-          </article>
+          <TaskForm
+            humans={humans}
+            voices={voices}
+            templates={templates}
+            onCreate={handleCreate}
+          />
+          <TaskList tasks={tasks} selectedTaskId={selectedTaskId} onSelect={handleSelectTask} />
+          <TaskDetail detail={detail} />
+          <ProfileList humans={humans} />
+          <VoiceList voices={voices} />
         </div>
-      </section>
-    </main>
+      )}
+    </Layout>
   );
 }
