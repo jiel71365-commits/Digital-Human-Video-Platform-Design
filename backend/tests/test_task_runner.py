@@ -243,6 +243,7 @@ def test_task_runner_completes_existing_script_task(session: Session, tmp_path: 
     assert scripts[0].script_text == "A complete script for the MVP."
     assert scripts[0].source_mode == TaskInputMode.EXISTING_SCRIPT.value
 
+    assert len(assets) == 4
     assert set(assets_by_type) == {"audio", "raw_video", "final_video", "cover"}
     assert assets_by_type["audio"].file_path == str(
         tmp_path / "tasks" / str(task_id) / "audio" / "speech.txt"
@@ -314,6 +315,60 @@ def test_task_runner_marks_task_failed_when_provider_raises(
     assert failed_log.error_code == "tts_failed"
     assert failed_log.user_message == "tts step failed"
     assert "tts provider unavailable" in (failed_log.technical_log or "")
+
+
+def test_task_runner_rerun_clears_previous_outputs_and_failed_step(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    task = _create_valid_task(session, raw_input="A script that succeeds on retry.")
+    task_id = _require_task_id(task)
+    storage = TaskStorage(tmp_path)
+    failing_runner = TaskRunner(
+        storage=storage,
+        llm_provider=MockLLMProvider(),
+        tts_provider=FailingTTSProvider(),
+        avatar_renderer=MockAvatarRenderer(storage),
+        post_processor=MockPostProcessor(storage),
+    )
+
+    with pytest.raises(RuntimeError, match="tts provider unavailable"):
+        failing_runner.run_task(session, task_id)
+    session.refresh(task)
+
+    assert task.current_state == TaskState.FAILED
+    assert task.failed_step == "tts"
+
+    successful_runner = TaskRunner(
+        storage=storage,
+        llm_provider=MockLLMProvider(),
+        tts_provider=MockTTSProvider(storage),
+        avatar_renderer=MockAvatarRenderer(storage),
+        post_processor=MockPostProcessor(storage),
+    )
+
+    successful_runner.run_task(session, task_id)
+    session.refresh(task)
+
+    scripts = session.exec(select(ScriptDraft).where(ScriptDraft.task_id == task_id)).all()
+    assets = session.exec(select(MediaAsset).where(MediaAsset.task_id == task_id)).all()
+    logs = session.exec(
+        select(GenerationStepLog)
+        .where(GenerationStepLog.task_id == task_id)
+        .order_by(GenerationStepLog.id)
+    ).all()
+
+    assert task.current_state == TaskState.COMPLETED
+    assert task.failed_step is None
+    assert task.final_video_path == str(
+        tmp_path / "tasks" / str(task_id) / "final" / "final-video.mp4"
+    )
+    assert task.cover_path == str(tmp_path / "tasks" / str(task_id) / "final" / "cover.txt")
+    assert len(scripts) == 1
+    assert len(assets) == 4
+    assert len(logs) == 4
+    assert [log.step_name for log in logs] == ["script", "tts", "avatar_render", "post_process"]
+    assert [log.status for log in logs] == [StepStatus.SUCCEEDED] * 4
 
 
 class FailingTTSProvider:

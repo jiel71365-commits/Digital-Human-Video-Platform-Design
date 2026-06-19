@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypeVar
 
-from sqlmodel import Session
+from sqlmodel import Session, delete
 
 from app.models import (
     DigitalHumanProfile,
@@ -51,6 +51,7 @@ class TaskRunner:
         if task is None:
             raise ValueError(f"Task {task_id} does not exist")
 
+        self._reset_task_outputs(session, task)
         self._transition_task(session, task, TaskState.QUEUED)
 
         script = self._run_step(
@@ -98,11 +99,17 @@ class TaskRunner:
         session.add(log)
         session.commit()
         session.refresh(log)
+        log_id = log.id
 
         try:
             result = action()
         except Exception as exc:
             finished = _utc_now()
+            session.rollback()
+            log = self._failure_log(session, log_id, task_id, step_name, started)
+            task = session.get(VideoTask, task_id)
+            if task is None:
+                raise
             log.status = StepStatus.FAILED
             log.finished_at = finished
             log.duration_seconds = (finished - started).total_seconds()
@@ -243,6 +250,33 @@ class TaskRunner:
         session.add(task)
         if commit:
             session.commit()
+
+    def _reset_task_outputs(self, session: Session, task: VideoTask) -> None:
+        task_id = _task_id(task)
+        session.exec(delete(ScriptDraft).where(ScriptDraft.task_id == task_id))
+        session.exec(delete(MediaAsset).where(MediaAsset.task_id == task_id))
+        session.exec(delete(GenerationStepLog).where(GenerationStepLog.task_id == task_id))
+        task.final_video_path = None
+        task.cover_path = None
+        task.failed_step = None
+
+    @staticmethod
+    def _failure_log(
+        session: Session,
+        log_id: int | None,
+        task_id: int,
+        step_name: str,
+        started: datetime,
+    ) -> GenerationStepLog:
+        log = session.get(GenerationStepLog, log_id) if log_id is not None else None
+        if log is not None:
+            return log
+        return GenerationStepLog(
+            task_id=task_id,
+            step_name=step_name,
+            status=StepStatus.RUNNING,
+            started_at=started,
+        )
 
     @staticmethod
     def _technical_log(step_name: str, result: object) -> str:
