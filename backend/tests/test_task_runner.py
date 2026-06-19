@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import runtime_checkable
 
+import pytest
+
 from app.models import TaskInputMode
 from app.providers.base import (
     AvatarRenderer,
@@ -27,6 +29,35 @@ def test_task_storage_creates_task_directories_and_sanitizes_artifacts(tmp_path:
     assert task_dir.exists()
     assert artifact == tmp_path / "tasks" / "12" / "audio_.._unsafe" / "speech_take.txt"
     assert artifact.parent.exists()
+
+
+def test_task_storage_rejects_parent_directory_artifact_segments(tmp_path: Path) -> None:
+    storage = TaskStorage(tmp_path)
+
+    with pytest.raises(ValueError, match="Invalid artifact"):
+        storage.artifact_path(12, "..", "x.txt")
+
+
+@pytest.mark.parametrize(
+    ("group", "filename"),
+    [
+        ("", "x.txt"),
+        ("   ", "x.txt"),
+        (".", "x.txt"),
+        ("audio", ""),
+        ("audio", "   "),
+        ("audio", "."),
+    ],
+)
+def test_task_storage_rejects_empty_or_current_directory_segments(
+    tmp_path: Path,
+    group: str,
+    filename: str,
+) -> None:
+    storage = TaskStorage(tmp_path)
+
+    with pytest.raises(ValueError, match="Invalid artifact"):
+        storage.artifact_path(12, group, filename)
 
 
 def test_mock_providers_create_artifacts(tmp_path: Path) -> None:
@@ -74,6 +105,30 @@ def test_mock_providers_create_artifacts(tmp_path: Path) -> None:
     assert final.cover_path == tmp_path / "tasks" / "12" / "final" / "cover.txt"
     assert "template=default-vertical" in final.final_video_path.read_text(encoding="utf-8")
     assert "cover for task 12" in final.cover_path.read_text(encoding="utf-8")
+
+
+def test_mock_avatar_renderer_rejects_missing_audio_artifact(tmp_path: Path) -> None:
+    renderer = MockAvatarRenderer(TaskStorage(tmp_path))
+
+    with pytest.raises(FileNotFoundError, match="Audio artifact does not exist"):
+        renderer.render(
+            task_id=12,
+            audio_path=tmp_path / "missing-speech.txt",
+            profile_key="default-presenter",
+            script_text="script",
+        )
+
+
+def test_mock_post_processor_rejects_missing_raw_video_artifact(tmp_path: Path) -> None:
+    post_processor = MockPostProcessor(TaskStorage(tmp_path))
+
+    with pytest.raises(FileNotFoundError, match="Raw video artifact does not exist"):
+        post_processor.process(
+            task_id=12,
+            raw_video_path=tmp_path / "missing-raw-video.txt",
+            script_text="script",
+            template_key="default-vertical",
+        )
 
 
 def test_mock_llm_normalizes_existing_script_and_generates_chinese_prompts() -> None:

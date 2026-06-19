@@ -63,8 +63,8 @@ class MockAvatarRenderer:
         profile_key: str,
         script_text: str = "",
     ) -> RenderResult:
-        path = self.storage.artifact_path(task_id, "render", "raw-video.txt")
         duration = _duration_from_audio_artifact(audio_path)
+        path = self.storage.artifact_path(task_id, "render", "raw-video.txt")
         path.write_text(
             (
                 f"profile={profile_key}\n"
@@ -92,6 +92,9 @@ class MockPostProcessor:
         script_text: str,
         template_key: str = "default",
     ) -> PostProcessResult:
+        if not raw_video_path.exists():
+            raise FileNotFoundError(f"Raw video artifact does not exist: {raw_video_path}")
+
         final_path = self.storage.artifact_path(task_id, "final", "final-video.mp4")
         cover_path = self.storage.artifact_path(task_id, "final", "cover.txt")
         final_path.write_text(
@@ -116,7 +119,7 @@ def _estimate_duration(script_text: str) -> float:
 
 def _duration_from_audio_artifact(audio_path: Path) -> float:
     if not audio_path.exists():
-        return 3.0
+        raise FileNotFoundError(f"Audio artifact does not exist: {audio_path}")
 
     for line in audio_path.read_text(encoding="utf-8").splitlines():
         if line.startswith("duration="):
