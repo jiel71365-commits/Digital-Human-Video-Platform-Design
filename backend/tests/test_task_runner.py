@@ -2,9 +2,23 @@ from pathlib import Path
 from typing import runtime_checkable
 
 import pytest
+from sqlalchemy import event
+from sqlmodel import Session, select
 
-from app.models import TaskInputMode
+from app.models import (
+    DigitalHumanProfile,
+    GenerationStepLog,
+    MediaAsset,
+    PostProcessTemplate,
+    ScriptDraft,
+    StepStatus,
+    TaskInputMode,
+    TaskState,
+    VideoTask,
+    VoiceProfile,
+)
 from app.providers.base import (
+    AudioResult,
     AvatarRenderer,
     LLMProvider,
     PostProcessor,
@@ -16,6 +30,8 @@ from app.providers.mock import (
     MockPostProcessor,
     MockTTSProvider,
 )
+from app.seed import seed_defaults
+from app.services.task_runner import TaskRunner
 from app.storage import TaskStorage
 
 
@@ -167,3 +183,173 @@ def test_mock_providers_satisfy_provider_protocols(tmp_path: Path) -> None:
     assert isinstance(MockTTSProvider(storage), runtime_tts)
     assert isinstance(MockAvatarRenderer(storage), runtime_avatar)
     assert isinstance(MockPostProcessor(storage), runtime_post_processor)
+
+
+def test_task_runner_completes_existing_script_task(session: Session, tmp_path: Path) -> None:
+    task = _create_valid_task(session, raw_input="A complete script for the MVP.")
+    task_id = _require_task_id(task)
+    observed_states: list[TaskState] = []
+
+    def capture_state_transition(
+        observed_session: Session,
+        _flush_context: object,
+        _instances: object,
+    ) -> None:
+        for obj in observed_session.dirty:
+            if isinstance(obj, VideoTask) and obj.id == task_id:
+                observed_states.append(obj.current_state)
+
+    event.listen(session, "before_flush", capture_state_transition)
+    storage = TaskStorage(tmp_path)
+    runner = TaskRunner(
+        storage=storage,
+        llm_provider=MockLLMProvider(),
+        tts_provider=MockTTSProvider(storage),
+        avatar_renderer=MockAvatarRenderer(storage),
+        post_processor=MockPostProcessor(storage),
+    )
+
+    try:
+        runner.run_task(session, task_id)
+    finally:
+        event.remove(session, "before_flush", capture_state_transition)
+    session.refresh(task)
+
+    scripts = session.exec(select(ScriptDraft).where(ScriptDraft.task_id == task_id)).all()
+    assets = session.exec(select(MediaAsset).where(MediaAsset.task_id == task_id)).all()
+    logs = session.exec(
+        select(GenerationStepLog)
+        .where(GenerationStepLog.task_id == task_id)
+        .order_by(GenerationStepLog.id)
+    ).all()
+    assets_by_type = {asset.asset_type: asset for asset in assets}
+
+    assert observed_states == [
+        TaskState.QUEUED,
+        TaskState.SCRIPT_READY,
+        TaskState.AUDIO_READY,
+        TaskState.RENDERED,
+        TaskState.POST_PROCESSED,
+        TaskState.COMPLETED,
+    ]
+    assert task.current_state == TaskState.COMPLETED
+    assert task.failed_step is None
+    assert task.final_video_path == str(
+        tmp_path / "tasks" / str(task_id) / "final" / "final-video.mp4"
+    )
+    assert task.cover_path == str(tmp_path / "tasks" / str(task_id) / "final" / "cover.txt")
+
+    assert len(scripts) == 1
+    assert scripts[0].script_text == "A complete script for the MVP."
+    assert scripts[0].source_mode == TaskInputMode.EXISTING_SCRIPT.value
+
+    assert set(assets_by_type) == {"audio", "raw_video", "final_video", "cover"}
+    assert assets_by_type["audio"].file_path == str(
+        tmp_path / "tasks" / str(task_id) / "audio" / "speech.txt"
+    )
+    assert assets_by_type["raw_video"].file_path == str(
+        tmp_path / "tasks" / str(task_id) / "render" / "raw-video.txt"
+    )
+    assert assets_by_type["final_video"].file_path == task.final_video_path
+    assert assets_by_type["cover"].file_path == task.cover_path
+
+    assert [log.step_name for log in logs] == ["script", "tts", "avatar_render", "post_process"]
+    assert [log.status for log in logs] == [StepStatus.SUCCEEDED] * 4
+    for log in logs:
+        assert log.started_at is not None
+        assert log.finished_at is not None
+        assert log.duration_seconds is not None
+        assert log.duration_seconds >= 0
+        assert log.technical_log
+
+
+def test_task_runner_raises_value_error_for_missing_task(tmp_path: Path, session: Session) -> None:
+    storage = TaskStorage(tmp_path)
+    runner = TaskRunner(
+        storage=storage,
+        llm_provider=MockLLMProvider(),
+        tts_provider=MockTTSProvider(storage),
+        avatar_renderer=MockAvatarRenderer(storage),
+        post_processor=MockPostProcessor(storage),
+    )
+
+    with pytest.raises(ValueError, match="Task 404 does not exist"):
+        runner.run_task(session, 404)
+
+
+def test_task_runner_marks_task_failed_when_provider_raises(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    task = _create_valid_task(session, raw_input="A script that cannot be voiced.")
+    task_id = _require_task_id(task)
+    storage = TaskStorage(tmp_path)
+    runner = TaskRunner(
+        storage=storage,
+        llm_provider=MockLLMProvider(),
+        tts_provider=FailingTTSProvider(),
+        avatar_renderer=MockAvatarRenderer(storage),
+        post_processor=MockPostProcessor(storage),
+    )
+
+    with pytest.raises(RuntimeError, match="tts provider unavailable"):
+        runner.run_task(session, task_id)
+    session.refresh(task)
+
+    logs = session.exec(
+        select(GenerationStepLog)
+        .where(GenerationStepLog.task_id == task_id)
+        .order_by(GenerationStepLog.id)
+    ).all()
+    failed_log = logs[-1]
+
+    assert task.current_state == TaskState.FAILED
+    assert task.failed_step == "tts"
+    assert [log.step_name for log in logs] == ["script", "tts"]
+    assert logs[0].status == StepStatus.SUCCEEDED
+    assert failed_log.step_name == "tts"
+    assert failed_log.status == StepStatus.FAILED
+    assert failed_log.finished_at is not None
+    assert failed_log.duration_seconds is not None
+    assert failed_log.error_code == "tts_failed"
+    assert failed_log.user_message == "tts step failed"
+    assert "tts provider unavailable" in (failed_log.technical_log or "")
+
+
+class FailingTTSProvider:
+    def synthesize(self, task_id: int, script_text: str, voice_key: str) -> AudioResult:
+        raise RuntimeError("tts provider unavailable")
+
+
+def _create_valid_task(
+    session: Session,
+    raw_input: str,
+    input_mode: TaskInputMode = TaskInputMode.EXISTING_SCRIPT,
+) -> VideoTask:
+    seed_defaults(session)
+    human = session.exec(select(DigitalHumanProfile)).first()
+    voice = session.exec(select(VoiceProfile)).first()
+    template = session.exec(select(PostProcessTemplate)).first()
+    assert human is not None
+    assert human.id is not None
+    assert voice is not None
+    assert voice.id is not None
+    assert template is not None
+    assert template.id is not None
+
+    task = VideoTask(
+        input_mode=input_mode,
+        raw_input=raw_input,
+        digital_human_profile_id=human.id,
+        voice_profile_id=voice.id,
+        post_process_template_id=template.id,
+    )
+    session.add(task)
+    session.commit()
+    session.refresh(task)
+    return task
+
+
+def _require_task_id(task: VideoTask) -> int:
+    assert task.id is not None
+    return task.id
