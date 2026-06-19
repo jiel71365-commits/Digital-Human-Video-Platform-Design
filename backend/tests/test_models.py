@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import Depends
 from sqlalchemy import inspect
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.database import get_session
@@ -144,3 +145,21 @@ def test_video_task_defaults_to_draft(session: Session) -> None:
     assert task.id is not None
     assert task.current_state == TaskState.DRAFT
     assert task.failed_step is None
+
+
+def test_video_task_rejects_missing_parent_records(session: Session) -> None:
+    task = VideoTask(
+        input_mode="existing_script",
+        raw_input="This task points at missing parent rows.",
+        digital_human_profile_id=404,
+        voice_profile_id=405,
+        post_process_template_id=406,
+    )
+    session.add(task)
+
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+    else:
+        raise AssertionError("Expected missing parent rows to raise IntegrityError")
