@@ -16,7 +16,9 @@ from app.schemas import (
     TaskRead,
     TemplateRead,
     VoiceRead,
+    Wav2LipRuntimeStatus,
 )
+from app.services.runtime_status import get_wav2lip_runtime_status
 from app.services.task_service import InvalidTaskReferencesError, TaskRunError, TaskService
 
 router = APIRouter(prefix="/api")
@@ -52,6 +54,11 @@ def list_templates(
     service: TaskServiceDep,
 ) -> list[TemplateRead]:
     return [TemplateRead.from_model(item) for item in service.list_templates(session)]
+
+
+@router.get("/runtime/wav2lip", response_model=Wav2LipRuntimeStatus)
+def get_wav2lip_runtime() -> Wav2LipRuntimeStatus:
+    return get_wav2lip_runtime_status(get_settings())
 
 
 @router.get("/tasks", response_model=list[TaskRead])

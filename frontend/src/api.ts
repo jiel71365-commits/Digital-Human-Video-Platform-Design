@@ -7,6 +7,7 @@ import type {
   TaskCreatePayload,
   TaskDetail,
   VideoTask,
+  Wav2LipRuntimeStatus,
   VoiceProfile
 } from "./types";
 
@@ -105,6 +106,10 @@ export function listTasks(): Promise<VideoTask[]> {
 
 export function getTask(taskId: number): Promise<TaskDetail> {
   return request<TaskDetail>(`/api/tasks/${taskId}`);
+}
+
+export function getWav2LipRuntimeStatus(): Promise<Wav2LipRuntimeStatus> {
+  return request<Wav2LipRuntimeStatus>("/api/runtime/wav2lip");
 }
 
 export function createTask(payload: TaskCreatePayload): Promise<VideoTask> {

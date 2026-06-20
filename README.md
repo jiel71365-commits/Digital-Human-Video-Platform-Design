@@ -44,6 +44,12 @@ Default expected local files:
 - `models/Wav2Lip/face_detection/detection/sfd/s3fd.pth`
 - `models/default-presenter.mp4`
 
+Prepare these assets with:
+
+```powershell
+python scripts/setup_wav2lip.py
+```
+
 Runtime settings can be overridden with `DHVP_` environment variables:
 
 - `DHVP_ENABLE_WAV2LIP=false` disables Wav2Lip and always uses the local preview renderer.
@@ -57,6 +63,10 @@ The original Wav2Lip open-source repo targets old Python dependencies. On modern
 `audio.py` may need the current `librosa.filters.mel(...)` keyword-argument call, and Windows
 may need its final ffmpeg call to run through `shell=True`. Those compatibility edits should be
 applied in the ignored local `models/Wav2Lip` directory, not committed to this repository.
+
+Runtime readiness is exposed at `GET /api/runtime/wav2lip`. The response reports whether
+Wav2Lip is enabled, whether all local files are available, which renderer will be used, and which
+requirements are missing.
 
 ## Frontend
 

@@ -106,6 +106,50 @@ button {
   line-height: 1.6;
 }
 
+.runtime-status {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid #dce3ee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.runtime-status > div:first-child {
+  display: grid;
+  min-width: 180px;
+  gap: 3px;
+}
+
+.runtime-status strong {
+  color: #172033;
+}
+
+.runtime-status span,
+.runtime-status code {
+  color: #607086;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.runtime-status-details {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.runtime-status-details span,
+.runtime-status-details code {
+  padding: 4px 7px;
+  border-radius: 8px;
+  background: #f8fafd;
+}
+
 .section-kicker {
   margin: 0 0 5px;
   color: #2f6f62;

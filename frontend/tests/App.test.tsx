@@ -8,6 +8,7 @@ import { App } from "../src/App";
 import {
   createTask,
   getTask,
+  getWav2LipRuntimeStatus,
   listDigitalHumans,
   listTasks,
   listTemplates,
@@ -20,6 +21,7 @@ import type {
   PostProcessTemplate,
   ScriptDraft,
   TaskDetail,
+  Wav2LipRuntimeStatus,
   VideoTask,
   VoiceProfile
 } from "../src/types";
@@ -27,6 +29,7 @@ import type {
 vi.mock("../src/api", () => ({
   createTask: vi.fn(),
   getTask: vi.fn(),
+  getWav2LipRuntimeStatus: vi.fn(),
   listDigitalHumans: vi.fn(),
   listTasks: vi.fn(),
   listTemplates: vi.fn(),
@@ -149,6 +152,21 @@ const logs: GenerationStepLog[] = [
   }
 ];
 
+const runtimeStatus: Wav2LipRuntimeStatus = {
+  enabled: true,
+  available: true,
+  active_renderer: "wav2lip",
+  missing_requirements: [],
+  model_paths: {
+    root: "models/Wav2Lip",
+    inference: "models/Wav2Lip/inference.py",
+    checkpoint: "models/Wav2Lip/checkpoints/wav2lip_gan.pth",
+    face_detector: "models/Wav2Lip/face_detection/detection/sfd/s3fd.pth",
+    default_face: "models/default-presenter.mp4"
+  },
+  setup_command: "python scripts/setup_wav2lip.py"
+};
+
 const detail: TaskDetail = {
   task: tasks[0],
   script,
@@ -193,6 +211,7 @@ const mockedListVoices = vi.mocked(listVoices);
 const mockedListTemplates = vi.mocked(listTemplates);
 const mockedListTasks = vi.mocked(listTasks);
 const mockedGetTask = vi.mocked(getTask);
+const mockedGetWav2LipRuntimeStatus = vi.mocked(getWav2LipRuntimeStatus);
 const mockedCreateTask = vi.mocked(createTask);
 
 function mockApiData(nextTasks = tasks) {
@@ -200,6 +219,7 @@ function mockApiData(nextTasks = tasks) {
   mockedListVoices.mockResolvedValue(voices);
   mockedListTemplates.mockResolvedValue(templates);
   mockedListTasks.mockResolvedValue(nextTasks);
+  mockedGetWav2LipRuntimeStatus.mockResolvedValue(runtimeStatus);
   mockedGetTask.mockImplementation(async (taskId: number) => {
     const task = nextTasks.find((nextTask) => nextTask.id === taskId);
     return task ? makeTaskDetail(task) : detail;
@@ -252,7 +272,25 @@ describe("App", () => {
       "href",
       "/api/artifacts/21/final/cover.jpg"
     );
+    expect(screen.getByText("Wav2Lip")).toBeInTheDocument();
+    expect(screen.getByText("真实口型同步已就绪")).toBeInTheDocument();
     expect(screen.getByText("post_process")).toBeInTheDocument();
+  });
+
+  it("shows fallback renderer status and setup command when Wav2Lip is unavailable", async () => {
+    mockedGetWav2LipRuntimeStatus.mockResolvedValue({
+      ...runtimeStatus,
+      available: false,
+      active_renderer: "fallback",
+      missing_requirements: ["models/Wav2Lip/checkpoints/wav2lip_gan.pth"]
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("Fallback")).toBeInTheDocument();
+    expect(screen.getByText("当前使用本地预览渲染")).toBeInTheDocument();
+    expect(screen.getByText("models/Wav2Lip/checkpoints/wav2lip_gan.pth")).toBeInTheDocument();
+    expect(screen.getByText("python scripts/setup_wav2lip.py")).toBeInTheDocument();
   });
 
   it("creates a task with the first available profile, voice, and template", async () => {

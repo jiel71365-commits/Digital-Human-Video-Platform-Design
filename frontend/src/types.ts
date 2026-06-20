@@ -125,3 +125,12 @@ export interface TaskDetail {
   assets: MediaAsset[];
   logs: GenerationStepLog[];
 }
+
+export interface Wav2LipRuntimeStatus {
+  enabled: boolean;
+  available: boolean;
+  active_renderer: "wav2lip" | "fallback" | string;
+  missing_requirements: string[];
+  model_paths: Record<string, string>;
+  setup_command: string;
+}

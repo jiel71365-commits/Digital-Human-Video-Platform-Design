@@ -103,6 +103,15 @@ class TaskDetail(BaseModel):
     logs: list[GenerationStepLogRead]
 
 
+class Wav2LipRuntimeStatus(BaseModel):
+    enabled: bool
+    available: bool
+    active_renderer: str
+    missing_requirements: list[str]
+    model_paths: dict[str, str]
+    setup_command: str
+
+
 class DigitalHumanRead(ApiModel):
     id: int
     name: str
