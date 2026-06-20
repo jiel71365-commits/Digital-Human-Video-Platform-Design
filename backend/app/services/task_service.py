@@ -2,6 +2,7 @@ from pathlib import Path
 
 from sqlmodel import Session, select
 
+from app.config import get_settings
 from app.models import (
     DigitalHumanProfile,
     GenerationStepLog,
@@ -18,6 +19,7 @@ from app.providers.mock import (
     MockPostProcessor,
     MockTTSProvider,
 )
+from app.providers.wav2lip import Wav2LipRenderer
 from app.schemas import TaskCreate
 from app.services.task_runner import TaskRunner
 from app.storage import TaskStorage
@@ -49,12 +51,25 @@ class TaskRunError(RuntimeError):
 
 class TaskService:
     def __init__(self, storage_root: Path) -> None:
+        settings = get_settings()
         self.storage = TaskStorage(storage_root)
+        fallback_renderer = MockAvatarRenderer(self.storage)
+        avatar_renderer = Wav2LipRenderer(
+            storage=self.storage,
+            fallback_renderer=fallback_renderer,
+            wav2lip_root=settings.wav2lip_root,
+            checkpoint_path=settings.wav2lip_checkpoint_path,
+            face_detector_path=settings.wav2lip_face_detector_path,
+            default_face_path=settings.wav2lip_default_face_path,
+            python_path=settings.wav2lip_python_path,
+            enabled=settings.enable_wav2lip,
+            timeout_seconds=settings.wav2lip_timeout_seconds,
+        )
         self.runner = TaskRunner(
             storage=self.storage,
             llm_provider=MockLLMProvider(),
             tts_provider=MockTTSProvider(self.storage),
-            avatar_renderer=MockAvatarRenderer(self.storage),
+            avatar_renderer=avatar_renderer,
             post_processor=MockPostProcessor(self.storage),
         )
 
