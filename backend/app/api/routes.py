@@ -12,6 +12,7 @@ from app.schemas import (
     DigitalHumanRead,
     GenerationStepLogRead,
     MediaAssetRead,
+    RendererRuntimeStatuses,
     ScriptDraftRead,
     TaskCreate,
     TaskDetail,
@@ -20,7 +21,7 @@ from app.schemas import (
     VoiceRead,
     Wav2LipRuntimeStatus,
 )
-from app.services.runtime_status import get_wav2lip_runtime_status
+from app.services.runtime_status import get_musetalk_runtime_status, get_wav2lip_runtime_status
 from app.services.task_service import InvalidTaskReferencesError, TaskRunError, TaskService
 
 router = APIRouter(prefix="/api")
@@ -98,6 +99,23 @@ def list_templates(
 @router.get("/runtime/wav2lip", response_model=Wav2LipRuntimeStatus)
 def get_wav2lip_runtime() -> Wav2LipRuntimeStatus:
     return get_wav2lip_runtime_status(get_settings())
+
+
+@router.get("/runtime/renderers", response_model=RendererRuntimeStatuses)
+def get_renderer_runtimes() -> RendererRuntimeStatuses:
+    settings = get_settings()
+    musetalk = get_musetalk_runtime_status(settings)
+    wav2lip = get_wav2lip_runtime_status(settings)
+    active_renderer = (
+        "musetalk" if musetalk.available else "wav2lip" if wav2lip.available else "fallback"
+    )
+    return RendererRuntimeStatuses(
+        active_renderer=active_renderer,
+        renderers={
+            "musetalk": musetalk,
+            "wav2lip": wav2lip,
+        },
+    )
 
 
 @router.get("/tasks", response_model=list[TaskRead])

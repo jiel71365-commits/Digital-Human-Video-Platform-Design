@@ -21,8 +21,10 @@ from app.providers.mock import (
     MockPostProcessor,
     MockTTSProvider,
 )
+from app.providers.musetalk import MuseTalkRenderer
 from app.providers.wav2lip import Wav2LipRenderer
 from app.schemas import TaskCreate
+from app.services.runtime_status import get_musetalk_runtime_status
 from app.services.task_runner import TaskRunner
 from app.storage import TaskStorage
 
@@ -55,10 +57,10 @@ class TaskService:
     def __init__(self, storage_root: Path) -> None:
         settings = get_settings()
         self.storage = TaskStorage(storage_root)
-        fallback_renderer = MockAvatarRenderer(self.storage)
-        avatar_renderer = Wav2LipRenderer(
+        mock_renderer = MockAvatarRenderer(self.storage)
+        wav2lip_renderer = Wav2LipRenderer(
             storage=self.storage,
-            fallback_renderer=fallback_renderer,
+            fallback_renderer=mock_renderer,
             wav2lip_root=settings.wav2lip_root,
             checkpoint_path=settings.wav2lip_checkpoint_path,
             face_detector_path=settings.wav2lip_face_detector_path,
@@ -67,6 +69,18 @@ class TaskService:
             enabled=settings.enable_wav2lip,
             timeout_seconds=settings.wav2lip_timeout_seconds,
         )
+        if get_musetalk_runtime_status(settings).available:
+            avatar_renderer = MuseTalkRenderer(
+                storage=self.storage,
+                fallback_renderer=wav2lip_renderer,
+                musetalk_root=settings.musetalk_root,
+                model_root=settings.musetalk_model_root,
+                python_path=settings.musetalk_python_path,
+                enabled=settings.enable_musetalk,
+                timeout_seconds=settings.musetalk_timeout_seconds,
+            )
+        else:
+            avatar_renderer = wav2lip_renderer
         self.runner = TaskRunner(
             storage=self.storage,
             llm_provider=MockLLMProvider(),

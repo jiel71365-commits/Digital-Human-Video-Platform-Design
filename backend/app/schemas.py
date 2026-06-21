@@ -112,6 +112,11 @@ class Wav2LipRuntimeStatus(BaseModel):
     setup_command: str
 
 
+class RendererRuntimeStatuses(BaseModel):
+    active_renderer: str
+    renderers: dict[str, Wav2LipRuntimeStatus]
+
+
 class DigitalHumanRead(ApiModel):
     id: int
     name: str

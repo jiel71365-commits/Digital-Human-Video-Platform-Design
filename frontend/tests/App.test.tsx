@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 import {
   createTask,
+  getRendererRuntimeStatus,
   getTask,
   getWav2LipRuntimeStatus,
   listDigitalHumans,
@@ -29,6 +30,7 @@ import type {
 
 vi.mock("../src/api", () => ({
   createTask: vi.fn(),
+  getRendererRuntimeStatus: vi.fn(),
   getTask: vi.fn(),
   getWav2LipRuntimeStatus: vi.fn(),
   listDigitalHumans: vi.fn(),
@@ -169,6 +171,25 @@ const runtimeStatus: Wav2LipRuntimeStatus = {
   setup_command: "python scripts/setup_wav2lip.py"
 };
 
+const rendererRuntimeStatus = {
+  active_renderer: "musetalk",
+  renderers: {
+    musetalk: {
+      enabled: true,
+      available: true,
+      active_renderer: "musetalk",
+      missing_requirements: [],
+      model_paths: {
+        root: "models/MuseTalk",
+        inference: "models/MuseTalk/scripts/inference.py",
+        model_root: "models/MuseTalk/models"
+      },
+      setup_command: "python scripts/setup_musetalk.py"
+    },
+    wav2lip: runtimeStatus
+  }
+};
+
 const detail: TaskDetail = {
   task: tasks[0],
   script,
@@ -213,6 +234,7 @@ const mockedListVoices = vi.mocked(listVoices);
 const mockedListTemplates = vi.mocked(listTemplates);
 const mockedListTasks = vi.mocked(listTasks);
 const mockedGetTask = vi.mocked(getTask);
+const mockedGetRendererRuntimeStatus = vi.mocked(getRendererRuntimeStatus);
 const mockedGetWav2LipRuntimeStatus = vi.mocked(getWav2LipRuntimeStatus);
 const mockedCreateTask = vi.mocked(createTask);
 const mockedUploadDigitalHumanSourceMedia = vi.mocked(uploadDigitalHumanSourceMedia);
@@ -222,6 +244,7 @@ function mockApiData(nextTasks = tasks) {
   mockedListVoices.mockResolvedValue(voices);
   mockedListTemplates.mockResolvedValue(templates);
   mockedListTasks.mockResolvedValue(nextTasks);
+  mockedGetRendererRuntimeStatus.mockResolvedValue(rendererRuntimeStatus);
   mockedGetWav2LipRuntimeStatus.mockResolvedValue(runtimeStatus);
   mockedUploadDigitalHumanSourceMedia.mockResolvedValue(humans[0]);
   mockedGetTask.mockImplementation(async (taskId: number) => {
@@ -276,25 +299,37 @@ describe("App", () => {
       "href",
       "/api/artifacts/21/final/cover.jpg"
     );
-    expect(screen.getByText("Wav2Lip")).toBeInTheDocument();
-    expect(screen.getByText("真实口型同步已就绪")).toBeInTheDocument();
+    expect(screen.getByText("MuseTalk")).toBeInTheDocument();
+    expect(screen.getByText("高质量口型同步已就绪")).toBeInTheDocument();
     expect(screen.getByText("post_process")).toBeInTheDocument();
   });
 
-  it("shows fallback renderer status and setup command when Wav2Lip is unavailable", async () => {
-    mockedGetWav2LipRuntimeStatus.mockResolvedValue({
-      ...runtimeStatus,
-      available: false,
+  it("shows fallback renderer status and setup command when renderers are unavailable", async () => {
+    mockedGetRendererRuntimeStatus.mockResolvedValue({
       active_renderer: "fallback",
-      missing_requirements: ["models/Wav2Lip/checkpoints/wav2lip_gan.pth"]
+      renderers: {
+        musetalk: {
+          ...rendererRuntimeStatus.renderers.musetalk,
+          available: false,
+          active_renderer: "fallback",
+          missing_requirements: ["models/MuseTalk/models/musetalkV15/unet.pth"]
+        },
+        wav2lip: {
+          ...runtimeStatus,
+          available: false,
+          active_renderer: "fallback",
+          missing_requirements: ["models/Wav2Lip/checkpoints/wav2lip_gan.pth"]
+        }
+      }
     });
 
     render(<App />);
 
     expect(await screen.findByText("Fallback")).toBeInTheDocument();
     expect(screen.getByText("当前使用本地预览渲染")).toBeInTheDocument();
+    expect(screen.getByText("models/MuseTalk/models/musetalkV15/unet.pth")).toBeInTheDocument();
     expect(screen.getByText("models/Wav2Lip/checkpoints/wav2lip_gan.pth")).toBeInTheDocument();
-    expect(screen.getByText("python scripts/setup_wav2lip.py")).toBeInTheDocument();
+    expect(screen.getByText("python scripts/setup_musetalk.py")).toBeInTheDocument();
   });
 
   it("creates a task with the first available profile, voice, and template", async () => {

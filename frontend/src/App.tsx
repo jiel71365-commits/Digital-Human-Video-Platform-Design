@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   createTask,
-  getWav2LipRuntimeStatus,
+  getRendererRuntimeStatus,
   getTask,
   listDigitalHumans,
   listTasks,
@@ -20,10 +20,10 @@ import { VoiceList } from "./components/VoiceList";
 import type {
   DigitalHumanProfile,
   PostProcessTemplate,
+  RendererRuntimeStatuses,
   TaskCreatePayload,
   TaskDetail as TaskDetailType,
   VideoTask,
-  Wav2LipRuntimeStatus,
   VoiceProfile
 } from "./types";
 
@@ -36,7 +36,7 @@ export function App() {
   const [voices, setVoices] = useState<VoiceProfile[]>([]);
   const [templates, setTemplates] = useState<PostProcessTemplate[]>([]);
   const [tasks, setTasks] = useState<VideoTask[]>([]);
-  const [runtimeStatus, setRuntimeStatus] = useState<Wav2LipRuntimeStatus | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = useState<RendererRuntimeStatuses | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [detail, setDetail] = useState<TaskDetailType | null>(null);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -72,7 +72,7 @@ export function App() {
           listVoices(),
           listTemplates(),
           listTasks(),
-          getWav2LipRuntimeStatus()
+          getRendererRuntimeStatus()
         ]);
       const taskIds = new Set(nextTasks.map((task) => task.id));
       const requestedTaskId =

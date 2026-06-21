@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     wav2lip_default_face_path: Path = PROJECT_ROOT / "models" / "default-presenter.mp4"
     wav2lip_python_path: Path | None = None
     wav2lip_timeout_seconds: int = 1800
+    enable_musetalk: bool = True
+    musetalk_root: Path = PROJECT_ROOT / "models" / "MuseTalk"
+    musetalk_model_root: Path = PROJECT_ROOT / "models" / "MuseTalk" / "models"
+    musetalk_python_path: Path | None = None
+    musetalk_timeout_seconds: int = 1800
 
     model_config = SettingsConfigDict(env_prefix="DHVP_", env_file=".env")
 

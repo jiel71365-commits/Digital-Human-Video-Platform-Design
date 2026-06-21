@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import event
 from sqlmodel import Session, select
 
+from app.config import Settings
 from app.models import (
     DigitalHumanProfile,
     GenerationStepLog,
@@ -35,8 +36,11 @@ from app.providers.mock import (
     MockPostProcessor,
     MockTTSProvider,
 )
+from app.providers.musetalk import MuseTalkRenderer
+from app.providers.wav2lip import Wav2LipRenderer
 from app.seed import seed_defaults
 from app.services.task_runner import TaskRunner
+from app.services.task_service import TaskService
 from app.storage import TaskStorage
 
 
@@ -255,6 +259,85 @@ def test_mock_providers_satisfy_provider_protocols(tmp_path: Path) -> None:
     assert isinstance(MockTTSProvider(storage), runtime_tts)
     assert isinstance(MockAvatarRenderer(storage), runtime_avatar)
     assert isinstance(MockPostProcessor(storage), runtime_post_processor)
+
+
+def test_task_service_prefers_musetalk_with_wav2lip_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        storage_root=tmp_path / "storage",
+        enable_musetalk=True,
+        musetalk_root=tmp_path / "models" / "MuseTalk",
+        musetalk_model_root=tmp_path / "models" / "MuseTalk" / "models",
+        enable_wav2lip=True,
+        wav2lip_root=tmp_path / "models" / "Wav2Lip",
+        wav2lip_checkpoint_path=tmp_path / "models" / "Wav2Lip" / "checkpoints" / "wav2lip_gan.pth",
+        wav2lip_face_detector_path=tmp_path
+        / "models"
+        / "Wav2Lip"
+        / "face_detection"
+        / "detection"
+        / "sfd"
+        / "s3fd.pth",
+        wav2lip_default_face_path=tmp_path / "models" / "default-presenter.mp4",
+    )
+    monkeypatch.setattr("app.services.task_service.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "app.services.runtime_status._missing_python_modules",
+        lambda python, modules: [],
+    )
+    for path in [
+        settings.musetalk_root / "scripts" / "inference.py",
+        settings.musetalk_model_root / "musetalkV15" / "unet.pth",
+        settings.musetalk_model_root / "musetalkV15" / "musetalk.json",
+        settings.musetalk_model_root / "sd-vae" / "config.json",
+        settings.musetalk_model_root / "whisper" / "config.json",
+        settings.musetalk_model_root / "dwpose" / "dw-ll_ucoco_384.pth",
+        settings.musetalk_model_root / "face-parse-bisent" / "79999_iter.pth",
+        settings.musetalk_model_root / "syncnet" / "latentsync_syncnet.pt",
+    ]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"placeholder")
+
+    service = TaskService(tmp_path / "storage")
+
+    avatar_renderer = service.runner.avatar_renderer
+    assert isinstance(avatar_renderer, MuseTalkRenderer)
+    assert isinstance(avatar_renderer.fallback_renderer, Wav2LipRenderer)
+
+
+def test_task_service_uses_wav2lip_when_musetalk_runtime_is_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        storage_root=tmp_path / "storage",
+        enable_musetalk=True,
+        musetalk_root=tmp_path / "models" / "MuseTalk",
+        musetalk_model_root=tmp_path / "models" / "MuseTalk" / "models",
+        musetalk_python_path=tmp_path / "venv" / "Scripts" / "python.exe",
+        enable_wav2lip=True,
+        wav2lip_root=tmp_path / "models" / "Wav2Lip",
+        wav2lip_checkpoint_path=tmp_path / "models" / "Wav2Lip" / "checkpoints" / "wav2lip_gan.pth",
+        wav2lip_face_detector_path=tmp_path
+        / "models"
+        / "Wav2Lip"
+        / "face_detection"
+        / "detection"
+        / "sfd"
+        / "s3fd.pth",
+        wav2lip_default_face_path=tmp_path / "models" / "default-presenter.mp4",
+    )
+    monkeypatch.setattr("app.services.task_service.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "app.services.task_service.get_musetalk_runtime_status",
+        lambda current_settings: type("Status", (), {"available": False})(),
+    )
+
+    service = TaskService(tmp_path / "storage")
+
+    assert isinstance(service.runner.avatar_renderer, Wav2LipRenderer)
 
 
 def test_task_runner_completes_existing_script_task(session: Session, tmp_path: Path) -> None:

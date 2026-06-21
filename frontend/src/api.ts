@@ -4,6 +4,7 @@ import type {
   ApiValidationIssue,
   DigitalHumanProfile,
   PostProcessTemplate,
+  RendererRuntimeStatuses,
   TaskCreatePayload,
   TaskDetail,
   VideoTask,
@@ -111,6 +112,10 @@ export function getTask(taskId: number): Promise<TaskDetail> {
 
 export function getWav2LipRuntimeStatus(): Promise<Wav2LipRuntimeStatus> {
   return request<Wav2LipRuntimeStatus>("/api/runtime/wav2lip");
+}
+
+export function getRendererRuntimeStatus(): Promise<RendererRuntimeStatuses> {
+  return request<RendererRuntimeStatuses>("/api/runtime/renderers");
 }
 
 export function createTask(payload: TaskCreatePayload): Promise<VideoTask> {

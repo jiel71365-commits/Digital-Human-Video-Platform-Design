@@ -126,11 +126,18 @@ export interface TaskDetail {
   logs: GenerationStepLog[];
 }
 
-export interface Wav2LipRuntimeStatus {
+export interface RendererRuntimeStatus {
   enabled: boolean;
   available: boolean;
-  active_renderer: "wav2lip" | "fallback" | string;
+  active_renderer: string;
   missing_requirements: string[];
   model_paths: Record<string, string>;
   setup_command: string;
 }
+
+export interface RendererRuntimeStatuses {
+  active_renderer: string;
+  renderers: Record<string, RendererRuntimeStatus>;
+}
+
+export type Wav2LipRuntimeStatus = RendererRuntimeStatus;
