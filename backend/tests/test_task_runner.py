@@ -26,6 +26,7 @@ from app.providers.base import (
     AvatarRenderer,
     LLMProvider,
     PostProcessor,
+    RenderResult,
     TTSProvider,
 )
 from app.providers.mock import (
@@ -306,6 +307,40 @@ def test_task_runner_completes_existing_script_task(session: Session, tmp_path: 
         assert log.technical_log
 
 
+def test_task_runner_passes_digital_human_source_media_to_avatar_renderer(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    task = _create_valid_task(session, raw_input="A script with custom presenter media.")
+    task_id = _require_task_id(task)
+    human = session.get(DigitalHumanProfile, task.digital_human_profile_id)
+    assert human is not None
+    source_media_path = tmp_path / "presenter.mp4"
+    source_media_path.write_bytes(b"presenter")
+    human.source_media_path = str(source_media_path)
+    session.add(human)
+    session.commit()
+    storage = TaskStorage(tmp_path)
+    avatar_renderer = RecordingAvatarRenderer(storage)
+    runner = TaskRunner(
+        storage=storage,
+        llm_provider=MockLLMProvider(),
+        tts_provider=MockTTSProvider(storage),
+        avatar_renderer=avatar_renderer,
+        post_processor=MockPostProcessor(storage),
+    )
+
+    runner.run_task(session, task_id)
+
+    assert avatar_renderer.calls == [
+        {
+            "task_id": task_id,
+            "profile_key": "mock-avatar",
+            "source_media_path": source_media_path,
+        }
+    ]
+
+
 def test_task_runner_raises_value_error_for_missing_task(tmp_path: Path, session: Session) -> None:
     storage = TaskStorage(tmp_path)
     runner = TaskRunner(
@@ -416,6 +451,34 @@ def test_task_runner_rerun_clears_previous_outputs_and_failed_step(
 class FailingTTSProvider:
     def synthesize(self, task_id: int, script_text: str, voice_key: str) -> AudioResult:
         raise RuntimeError("tts provider unavailable")
+
+
+class RecordingAvatarRenderer:
+    def __init__(self, storage: TaskStorage) -> None:
+        self.storage = storage
+        self.calls: list[dict[str, object]] = []
+
+    def render(
+        self,
+        task_id: int,
+        audio_path: Path,
+        profile_key: str,
+        script_text: str = "",
+        source_media_path: Path | None = None,
+    ) -> RenderResult:
+        self.calls.append(
+            {
+                "task_id": task_id,
+                "profile_key": profile_key,
+                "source_media_path": source_media_path,
+            }
+        )
+        return MockAvatarRenderer(self.storage).render(
+            task_id=task_id,
+            audio_path=audio_path,
+            profile_key=profile_key,
+            script_text=script_text,
+        )
 
 
 def _create_valid_task(

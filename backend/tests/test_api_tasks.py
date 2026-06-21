@@ -129,6 +129,51 @@ def test_list_profiles_voices_templates_and_tasks(
     assert tasks == []
 
 
+def test_upload_digital_human_source_media_updates_profile_and_serves_artifact(
+    api_client: TestClient,
+    api_storage_root: Path,
+    session: Session,
+) -> None:
+    seed_defaults(session)
+
+    response = api_client.post(
+        "/api/digital-humans/1/source-media",
+        files={"file": ("presenter.mp4", b"fake mp4 bytes", "video/mp4")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == 1
+    assert payload["source_media_path"] == str(
+        api_storage_root / "digital-humans" / "1" / "source-media.mp4"
+    )
+    assert Path(payload["source_media_path"]).read_bytes() == b"fake mp4 bytes"
+
+    humans_response = api_client.get("/api/digital-humans")
+    humans = humans_response.json()
+    assert humans[0]["source_media_path"] == payload["source_media_path"]
+
+    artifact_response = api_client.get("/api/digital-humans/1/source-media")
+    assert artifact_response.status_code == 200
+    assert artifact_response.headers["content-type"].startswith("video/mp4")
+    assert artifact_response.content == b"fake mp4 bytes"
+
+
+def test_upload_digital_human_source_media_rejects_unsupported_file_type(
+    api_client: TestClient,
+    session: Session,
+) -> None:
+    seed_defaults(session)
+
+    response = api_client.post(
+        "/api/digital-humans/1/source-media",
+        files={"file": ("notes.txt", b"not media", "text/plain")},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Unsupported source media type"
+
+
 def test_create_task_rejects_invalid_reference_ids(
     api_client: TestClient,
     session: Session,

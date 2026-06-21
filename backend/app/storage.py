@@ -19,6 +19,14 @@ class TaskStorage:
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
+    def digital_human_source_media_path(self, profile_id: int, suffix: str) -> Path:
+        safe_suffix = suffix.lower()
+        if safe_suffix not in {".mp4", ".mov", ".jpg", ".jpeg", ".png"}:
+            raise ValueError(f"Unsupported source media suffix: {suffix!r}")
+        path = self.root / "digital-humans" / str(profile_id) / f"source-media{safe_suffix}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
     @staticmethod
     def _sanitize(value: str) -> str:
         sanitized = value.strip()

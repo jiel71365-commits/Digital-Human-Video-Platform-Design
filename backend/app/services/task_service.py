@@ -1,4 +1,6 @@
 from pathlib import Path
+from shutil import copyfileobj
+from typing import BinaryIO
 
 from sqlmodel import Session, select
 
@@ -123,6 +125,26 @@ class TaskService:
         return list(
             session.exec(select(DigitalHumanProfile).order_by(DigitalHumanProfile.id)).all()
         )
+
+    def update_digital_human_source_media(
+        self,
+        session: Session,
+        profile_id: int,
+        filename: str,
+        file: BinaryIO,
+    ) -> DigitalHumanProfile | None:
+        profile = session.get(DigitalHumanProfile, profile_id)
+        if profile is None:
+            return None
+        suffix = Path(filename).suffix
+        path = self.storage.digital_human_source_media_path(profile_id, suffix)
+        with path.open("wb") as output:
+            copyfileobj(file, output)
+        profile.source_media_path = str(path)
+        session.add(profile)
+        session.commit()
+        session.refresh(profile)
+        return profile
 
     def list_voices(self, session: Session) -> list[VoiceProfile]:
         return list(session.exec(select(VoiceProfile).order_by(VoiceProfile.id)).all())

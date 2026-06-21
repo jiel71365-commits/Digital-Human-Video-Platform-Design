@@ -12,7 +12,8 @@ import {
   listDigitalHumans,
   listTasks,
   listTemplates,
-  listVoices
+  listVoices,
+  uploadDigitalHumanSourceMedia
 } from "../src/api";
 import type {
   DigitalHumanProfile,
@@ -33,7 +34,8 @@ vi.mock("../src/api", () => ({
   listDigitalHumans: vi.fn(),
   listTasks: vi.fn(),
   listTemplates: vi.fn(),
-  listVoices: vi.fn()
+  listVoices: vi.fn(),
+  uploadDigitalHumanSourceMedia: vi.fn()
 }));
 
 vi.mock("lucide-react", () => {
@@ -213,6 +215,7 @@ const mockedListTasks = vi.mocked(listTasks);
 const mockedGetTask = vi.mocked(getTask);
 const mockedGetWav2LipRuntimeStatus = vi.mocked(getWav2LipRuntimeStatus);
 const mockedCreateTask = vi.mocked(createTask);
+const mockedUploadDigitalHumanSourceMedia = vi.mocked(uploadDigitalHumanSourceMedia);
 
 function mockApiData(nextTasks = tasks) {
   mockedListDigitalHumans.mockResolvedValue(humans);
@@ -220,6 +223,7 @@ function mockApiData(nextTasks = tasks) {
   mockedListTemplates.mockResolvedValue(templates);
   mockedListTasks.mockResolvedValue(nextTasks);
   mockedGetWav2LipRuntimeStatus.mockResolvedValue(runtimeStatus);
+  mockedUploadDigitalHumanSourceMedia.mockResolvedValue(humans[0]);
   mockedGetTask.mockImplementation(async (taskId: number) => {
     const task = nextTasks.find((nextTask) => nextTask.id === taskId);
     return task ? makeTaskDetail(task) : detail;
@@ -332,6 +336,31 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: /#22/ })).toBeInTheDocument();
     expect(screen.getByText("Created task script")).toBeInTheDocument();
     expect(screen.queryByText("Initial task script")).not.toBeInTheDocument();
+  });
+
+  it("uploads source media for a digital human profile and refreshes profiles", async () => {
+    const user = userEvent.setup();
+    const uploadedHuman: DigitalHumanProfile = {
+      ...humans[0],
+      source_media_path: "/storage/digital-humans/1/source-media.mp4"
+    };
+    mockedUploadDigitalHumanSourceMedia.mockResolvedValue(uploadedHuman);
+    mockedListDigitalHumans.mockResolvedValueOnce(humans).mockResolvedValueOnce([uploadedHuman]);
+    mockedListTasks.mockResolvedValueOnce(tasks).mockResolvedValueOnce(tasks);
+
+    render(<App />);
+
+    await screen.findAllByText("Default Presenter");
+    const input = screen.getByLabelText("上传素材") as HTMLInputElement;
+    const file = new File(["video"], "presenter.mp4", { type: "video/mp4" });
+    await user.upload(input, file);
+
+    await waitFor(() => {
+      expect(mockedUploadDigitalHumanSourceMedia).toHaveBeenCalledWith(1, file);
+    });
+    expect(
+      await screen.findByText(/\/storage\/digital-humans\/1\/source-media\.mp4/)
+    ).toBeInTheDocument();
   });
 
   it("keeps the latest selected task detail when older requests resolve later", async () => {

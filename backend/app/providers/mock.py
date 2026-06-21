@@ -69,6 +69,7 @@ class MockAvatarRenderer:
         audio_path: Path,
         profile_key: str,
         script_text: str = "",
+        source_media_path: Path | None = None,
     ) -> RenderResult:
         duration = _duration_from_audio_artifact(audio_path)
         path = self.storage.artifact_path(task_id, "render", "raw-video.mp4")

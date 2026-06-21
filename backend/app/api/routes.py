@@ -1,11 +1,13 @@
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlmodel import Session
 
 from app.config import get_settings
 from app.database import get_session
+from app.models import DigitalHumanProfile
 from app.schemas import (
     DigitalHumanRead,
     GenerationStepLogRead,
@@ -38,6 +40,43 @@ def list_digital_humans(
     service: TaskServiceDep,
 ) -> list[DigitalHumanRead]:
     return [DigitalHumanRead.from_model(item) for item in service.list_humans(session)]
+
+
+@router.post("/digital-humans/{profile_id}/source-media", response_model=DigitalHumanRead)
+def upload_digital_human_source_media(
+    profile_id: int,
+    file: UploadFile,
+    session: SessionDep,
+    service: TaskServiceDep,
+) -> DigitalHumanRead:
+    if not _is_supported_source_media(file.filename or "", file.content_type):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Unsupported source media type",
+        )
+    profile = service.update_digital_human_source_media(
+        session,
+        profile_id,
+        file.filename or "source-media",
+        file.file,
+    )
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Digital human not found")
+    return DigitalHumanRead.from_model(profile)
+
+
+@router.get("/digital-humans/{profile_id}/source-media")
+def get_digital_human_source_media(
+    profile_id: int,
+    session: SessionDep,
+) -> FileResponse:
+    profile = session.get(DigitalHumanProfile, profile_id)
+    if profile is None or profile.source_media_path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source media not found")
+    path = Path(profile.source_media_path)
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source media not found")
+    return FileResponse(path)
 
 
 @router.get("/voices", response_model=list[VoiceRead])
@@ -148,3 +187,12 @@ def _public_artifact_url(file_path: str) -> str | None:
         return None
     task_id, group, filename = artifact_parts
     return f"/api/artifacts/{task_id}/{group}/{filename}"
+
+
+def _is_supported_source_media(filename: str, content_type: str | None) -> bool:
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".mp4", ".mov", ".jpg", ".jpeg", ".png"}:
+        return False
+    if content_type is None:
+        return True
+    return content_type.startswith("video/") or content_type.startswith("image/")

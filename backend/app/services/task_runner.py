@@ -184,11 +184,17 @@ class TaskRunner:
         profile_key = (
             human.renderer_adapter_key if human is not None else str(task.digital_human_profile_id)
         )
+        source_media_path = (
+            Path(human.source_media_path)
+            if human is not None and human.source_media_path is not None
+            else None
+        )
         result = self.avatar_renderer.render(
             task_id=_task_id(task),
             audio_path=audio_path,
             profile_key=profile_key,
             script_text=script_text,
+            source_media_path=source_media_path,
         )
         session.add(
             MediaAsset(

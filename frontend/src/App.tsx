@@ -7,7 +7,8 @@ import {
   listDigitalHumans,
   listTasks,
   listTemplates,
-  listVoices
+  listVoices,
+  uploadDigitalHumanSourceMedia
 } from "./api";
 import { Layout } from "./components/Layout";
 import { ProfileList } from "./components/ProfileList";
@@ -114,6 +115,17 @@ export function App() {
     }
   }
 
+  async function handleUploadHumanSourceMedia(profileId: number, file: File) {
+    try {
+      setError(null);
+      await uploadDigitalHumanSourceMedia(profileId, file);
+      await loadData(selectedTaskId ?? undefined);
+    } catch (err) {
+      setError(`素材上传失败：${getErrorMessage(err)}`);
+      throw err;
+    }
+  }
+
   function handleSelectTask(taskId: number) {
     setSelectedTaskId(taskId);
     void loadTaskDetail(taskId);
@@ -155,7 +167,7 @@ export function App() {
           />
           <TaskList tasks={tasks} selectedTaskId={selectedTaskId} onSelect={handleSelectTask} />
           <TaskDetail detail={detail} />
-          <ProfileList humans={humans} />
+          <ProfileList humans={humans} onUploadSourceMedia={handleUploadHumanSourceMedia} />
           <VoiceList voices={voices} />
         </div>
       )}

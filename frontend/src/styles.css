@@ -278,6 +278,35 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.file-upload-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 34px;
+  margin-top: 4px;
+  padding: 7px 10px;
+  border: 1px solid #c9d4e5;
+  border-radius: 8px;
+  color: #1f4f46;
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.file-upload-control:hover {
+  border-color: #26735f;
+  background: #eef8f5;
+}
+
+.file-upload-control input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .task-form button[type="submit"] {
   min-height: 42px;
   border: 0;

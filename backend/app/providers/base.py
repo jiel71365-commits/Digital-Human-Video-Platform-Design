@@ -55,6 +55,7 @@ class AvatarRenderer(Protocol):
         audio_path: Path,
         profile_key: str,
         script_text: str = "",
+        source_media_path: Path | None = None,
     ) -> RenderResult:
         raise NotImplementedError
 

@@ -41,10 +41,19 @@ class Wav2LipRenderer:
         audio_path: Path,
         profile_key: str,
         script_text: str = "",
+        source_media_path: Path | None = None,
     ) -> RenderResult:
-        missing_reason = self._missing_prerequisite(audio_path)
+        face_path = source_media_path or self.default_face_path
+        missing_reason = self._missing_prerequisite(audio_path, face_path)
         if missing_reason is not None:
-            return self._fallback(task_id, audio_path, profile_key, script_text, missing_reason)
+            return self._fallback(
+                task_id,
+                audio_path,
+                profile_key,
+                script_text,
+                missing_reason,
+                source_media_path,
+            )
 
         output_path = self.storage.artifact_path(task_id, "render", "raw-video.mp4")
         inference_path = self.wav2lip_root / "inference.py"
@@ -56,7 +65,7 @@ class Wav2LipRenderer:
             "--checkpoint_path",
             str(self.checkpoint_path.resolve()),
             "--face",
-            str(self.default_face_path.resolve()),
+            str(face_path.resolve()),
             "--audio",
             str(audio_path.resolve()),
             "--outfile",
@@ -83,6 +92,7 @@ class Wav2LipRenderer:
                 profile_key,
                 script_text,
                 f"Wav2Lip subprocess failed: {exc}",
+                source_media_path,
             )
 
         if completed.returncode != 0:
@@ -93,6 +103,7 @@ class Wav2LipRenderer:
                 profile_key,
                 script_text,
                 f"Wav2Lip exited with code {completed.returncode}: {error}",
+                source_media_path,
             )
         if not output_path.exists():
             return self._fallback(
@@ -101,6 +112,7 @@ class Wav2LipRenderer:
                 profile_key,
                 script_text,
                 f"Wav2Lip did not create raw-video.mp4: {_completed_output(completed)}",
+                source_media_path,
             )
 
         return RenderResult(
@@ -109,7 +121,7 @@ class Wav2LipRenderer:
             technical_log="wav2lip render ok",
         )
 
-    def _missing_prerequisite(self, audio_path: Path) -> str | None:
+    def _missing_prerequisite(self, audio_path: Path, face_path: Path) -> str | None:
         inference_path = self.wav2lip_root / "inference.py"
         checks = [
             (self.enabled, "Wav2Lip disabled by settings"),
@@ -119,10 +131,7 @@ class Wav2LipRenderer:
                 self.face_detector_path.exists(),
                 f"missing Wav2Lip face detector: {self.face_detector_path}",
             ),
-            (
-                self.default_face_path.exists(),
-                f"missing Wav2Lip face media: {self.default_face_path}",
-            ),
+            (face_path.exists(), f"missing Wav2Lip face media: {face_path}"),
             (audio_path.exists(), f"missing audio artifact: {audio_path}"),
         ]
         for ok, reason in checks:
@@ -137,12 +146,14 @@ class Wav2LipRenderer:
         profile_key: str,
         script_text: str,
         reason: str,
+        source_media_path: Path | None = None,
     ) -> RenderResult:
         result = self.fallback_renderer.render(
             task_id=task_id,
             audio_path=audio_path,
             profile_key=profile_key,
             script_text=script_text,
+            source_media_path=source_media_path,
         )
         return RenderResult(
             video_path=result.video_path,

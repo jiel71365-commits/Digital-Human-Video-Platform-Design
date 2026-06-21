@@ -28,11 +28,12 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const isFormData = init.body instanceof FormData;
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       Accept: "application/json",
-      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...(init.body && !isFormData ? { "Content-Type": "application/json" } : {}),
       ...init.headers
     }
   });
@@ -116,5 +117,18 @@ export function createTask(payload: TaskCreatePayload): Promise<VideoTask> {
   return request<VideoTask>("/api/tasks", {
     method: "POST",
     body: JSON.stringify(payload)
+  });
+}
+
+export function uploadDigitalHumanSourceMedia(
+  profileId: number,
+  file: File
+): Promise<DigitalHumanProfile> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return request<DigitalHumanProfile>(`/api/digital-humans/${profileId}/source-media`, {
+    method: "POST",
+    body: formData
   });
 }

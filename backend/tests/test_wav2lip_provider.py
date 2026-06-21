@@ -38,6 +38,7 @@ def test_wav2lip_renderer_falls_back_when_prerequisites_are_missing(tmp_path: Pa
             "audio_path": audio_path,
             "profile_key": "wav2lip",
             "script_text": "hello",
+            "source_media_path": None,
         }
     ]
     assert "wav2lip fallback" in result.technical_log
@@ -146,6 +147,67 @@ def test_wav2lip_renderer_invokes_external_inference_when_ready(
     assert ffmpeg_shim.exists()
     assert Path(env["PATH"].split(";")[0]).is_absolute()
     assert env["PATH"].startswith(str(ffmpeg_shim.parent))
+
+
+def test_wav2lip_renderer_uses_source_media_path_as_face_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = TaskStorage(tmp_path)
+    wav2lip_root = tmp_path / "models" / "Wav2Lip"
+    inference_path = wav2lip_root / "inference.py"
+    checkpoint_path = wav2lip_root / "checkpoints" / "wav2lip_gan.pth"
+    face_detector_path = wav2lip_root / "face_detection" / "detection" / "sfd" / "s3fd.pth"
+    default_face_path = tmp_path / "models" / "default-presenter.mp4"
+    uploaded_face_path = tmp_path / "uploads" / "presenter.mp4"
+    audio_path = _write_wav(storage.artifact_path(5, "audio", "speech.wav"))
+    for path in [
+        inference_path,
+        checkpoint_path,
+        face_detector_path,
+        default_face_path,
+        uploaded_face_path,
+    ]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"placeholder")
+    commands: list[list[str]] = []
+
+    def fake_run(
+        command: list[str],
+        *,
+        cwd: Path,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        env: dict[str, str],
+        timeout: int,
+    ) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        outfile = Path(command[command.index("--outfile") + 1])
+        outfile.parent.mkdir(parents=True, exist_ok=True)
+        outfile.write_bytes(b"wav2lip mp4")
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("app.providers.wav2lip.subprocess.run", fake_run)
+    renderer = Wav2LipRenderer(
+        storage=storage,
+        fallback_renderer=RecordingFallbackRenderer(storage),
+        wav2lip_root=wav2lip_root,
+        checkpoint_path=checkpoint_path,
+        face_detector_path=face_detector_path,
+        default_face_path=default_face_path,
+    )
+
+    renderer.render(
+        task_id=5,
+        audio_path=audio_path,
+        profile_key="wav2lip",
+        script_text="hello",
+        source_media_path=uploaded_face_path,
+    )
+
+    command = commands[0]
+    assert command[command.index("--face") + 1] == str(uploaded_face_path)
 
 
 def test_wav2lip_renderer_resolves_relative_artifact_paths_for_subprocess(
@@ -278,6 +340,7 @@ class RecordingFallbackRenderer:
         audio_path: Path,
         profile_key: str,
         script_text: str = "",
+        source_media_path: Path | None = None,
     ) -> RenderResult:
         self.calls.append(
             {
@@ -285,6 +348,7 @@ class RecordingFallbackRenderer:
                 "audio_path": audio_path,
                 "profile_key": profile_key,
                 "script_text": script_text,
+                "source_media_path": source_media_path,
             }
         )
         video_path = self.storage.artifact_path(task_id, "render", "fallback.mp4")
