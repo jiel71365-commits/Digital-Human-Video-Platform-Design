@@ -145,8 +145,11 @@ def _duration_from_wav(path: Path) -> float:
 def _write_sapi_or_tone_wav(path: Path, script_text: str, duration_seconds: float) -> None:
     try:
         _write_sapi_wav(path, script_text)
+        if _duration_from_wav(path) > 0:
+            return
     except Exception:
-        _write_tone_wav(path=path, duration_seconds=duration_seconds)
+        pass
+    _write_tone_wav(path=path, duration_seconds=duration_seconds)
 
 
 def _write_sapi_wav(path: Path, script_text: str) -> None:

@@ -70,11 +70,11 @@ class Wav2LipRenderer:
             str(audio_path.resolve()),
             "--outfile",
             str(output_arg),
-            "--static",
-            "True",
             "--fps",
             "24",
         ]
+        if _is_image_face_media(face_path):
+            command.extend(["--static", "True"])
         try:
             completed = subprocess.run(
                 command,
@@ -186,3 +186,7 @@ def _completed_output(completed: subprocess.CompletedProcess[str]) -> str:
     if stderr:
         parts.append(f"stderr={stderr[-1000:]}")
     return "; ".join(parts) or "no subprocess output"
+
+
+def _is_image_face_media(path: Path) -> bool:
+    return path.suffix.lower() in {".jpg", ".jpeg", ".png"}

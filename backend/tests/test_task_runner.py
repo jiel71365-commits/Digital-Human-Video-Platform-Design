@@ -166,6 +166,35 @@ def test_mock_post_processor_creates_playable_mp4(tmp_path: Path) -> None:
         capture.release()
 
 
+def test_mock_tts_provider_falls_back_when_sapi_writes_empty_wav(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = TaskStorage(tmp_path)
+
+    def write_empty_wav(path: Path, script_text: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with wave.open(str(path), "wb") as audio:
+            audio.setnchannels(1)
+            audio.setsampwidth(2)
+            audio.setframerate(16_000)
+
+    monkeypatch.setattr("app.providers.mock._write_sapi_wav", write_empty_wav)
+
+    result = MockTTSProvider(storage).synthesize(
+        task_id=13,
+        script_text="SAPI can silently produce an empty wav.",
+        voice_key="default",
+    )
+
+    assert result.audio_path == tmp_path / "tasks" / "13" / "audio" / "speech.wav"
+    assert result.duration_seconds > 0
+    assert _wav_duration(result.audio_path) > 0
+    assert result.timing == [
+        {"start": 0.0, "end": result.duration_seconds, "text": result.timing[0]["text"]}
+    ]
+
+
 def test_mock_avatar_renderer_rejects_missing_audio_artifact(tmp_path: Path) -> None:
     renderer = MockAvatarRenderer(TaskStorage(tmp_path))
 
